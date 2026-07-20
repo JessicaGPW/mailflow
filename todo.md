@@ -72,5 +72,5 @@
 - [x] Verificação real de DNS: backend com dns.promises.resolveTxt (SPF, DKIM, DMARC)
 - [x] Verificação real de DNS: botão "Verificar" na página de domínios com status atualizado
 - [x] Testes vitest para novas funcionalidades — 27 testes passando
-- [ ] Atualizar skill email-marketing-saas-builder com novos padrões
-- [ ] Checkpoint final da rodada 3
+- [x] Atualizar skill email-marketing-saas-builder com novos padrões
+- [x] Checkpoint final da rodada 3
