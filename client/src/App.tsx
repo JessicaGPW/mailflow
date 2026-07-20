@@ -5,34 +5,61 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
+import Dashboard from "./pages/Dashboard";
+import Contacts from "./pages/Contacts";
+import Lists from "./pages/Lists";
+import Segments from "./pages/Segments";
+import Campaigns from "./pages/Campaigns";
+import CampaignDetail from "./pages/CampaignDetail";
+import CampaignEditor from "./pages/CampaignEditor";
+import Automations from "./pages/Automations";
+import AutomationEditor from "./pages/AutomationEditor";
+import Templates from "./pages/Templates";
+import Domains from "./pages/Domains";
+import SmtpSettings from "./pages/SmtpSettings";
+import Team from "./pages/Team";
+import OrgSettings from "./pages/OrgSettings";
+import AppLayout from "./components/AppLayout";
 
-function Router() {
-  // make sure to consider if you need authentication for certain routes
+function AppRouter() {
   return (
     <Switch>
-      <Route path={"/"} component={Home} />
-      <Route path={"/404"} component={NotFound} />
-      {/* Final fallback route */}
+      <Route path="/" component={Home} />
+      <Route path="/app" nest>
+        <AppLayout>
+          <Switch>
+            <Route path="/" component={Dashboard} />
+            <Route path="/contacts" component={Contacts} />
+            <Route path="/lists" component={Lists} />
+            <Route path="/segments" component={Segments} />
+            <Route path="/campaigns" component={Campaigns} />
+            <Route path="/campaigns/new" component={CampaignEditor} />
+            <Route path="/campaigns/:id" component={CampaignDetail} />
+            <Route path="/campaigns/:id/edit" component={CampaignEditor} />
+            <Route path="/automations" component={Automations} />
+            <Route path="/automations/new" component={AutomationEditor} />
+            <Route path="/automations/:id" component={AutomationEditor} />
+            <Route path="/templates" component={Templates} />
+            <Route path="/domains" component={Domains} />
+            <Route path="/smtp" component={SmtpSettings} />
+            <Route path="/team" component={Team} />
+            <Route path="/settings" component={OrgSettings} />
+          </Switch>
+        </AppLayout>
+      </Route>
+      <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
   );
 }
 
-// NOTE: About Theme
-// - First choose a default theme according to your design style (dark or light bg), than change color palette in index.css
-//   to keep consistent foreground/background color across components
-// - If you want to make theme switchable, pass `switchable` ThemeProvider and use `useTheme` hook
-
 function App() {
   return (
     <ErrorBoundary>
-      <ThemeProvider
-        defaultTheme="light"
-        // switchable
-      >
+      <ThemeProvider defaultTheme="light">
         <TooltipProvider>
           <Toaster />
-          <Router />
+          <AppRouter />
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>
