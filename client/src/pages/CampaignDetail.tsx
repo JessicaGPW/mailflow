@@ -3,7 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Send, Mail, Eye, MousePointerClick, AlertCircle, UserX, Link2 } from "lucide-react";
+import { ArrowLeft, Send, Mail, Eye, MousePointerClick, AlertCircle, UserX, Link2, FlaskConical, Trophy } from "lucide-react";
 import { Link, useParams } from "wouter";
 import { useMemo } from "react";
 import { toast } from "sonner";
@@ -22,6 +22,10 @@ export default function CampaignDetail() {
     { enabled: !!orgId && !isNaN(campaignId) }
   );
   const { data: links } = trpc.campaigns.links.useQuery(
+    { orgId: orgId!, campaignId },
+    { enabled: !!orgId && !isNaN(campaignId) }
+  );
+  const { data: abResults } = trpc.campaigns.abResults.useQuery(
     { orgId: orgId!, campaignId },
     { enabled: !!orgId && !isNaN(campaignId) }
   );
@@ -87,6 +91,62 @@ export default function CampaignDetail() {
           </Card>
         ))}
       </div>
+
+      {/* A/B Test results */}
+      {abResults && (
+        <div className="mb-8">
+          <h2 className="text-lg font-semibold tracking-tight mb-3 flex items-center gap-2">
+            <FlaskConical className="h-5 w-5 text-primary" />
+            Resultados do Teste A/B
+          </h2>
+          <div className="grid md:grid-cols-2 gap-4">
+            {(["a", "b"] as const).map(v => {
+              const data = abResults[v];
+              const isWinner = abResults.winner === v;
+              const rate = v === "a" ? abResults.rateA : abResults.rateB;
+              const subject = v === "a" ? campaign.subject : campaign.abSubjectB;
+              return (
+                <Card key={v} className={`p-5 shadow-premium relative overflow-hidden ${isWinner ? "border-primary/50 ring-1 ring-primary/30" : "border-border/50"}`}>
+                  {isWinner && (
+                    <div className="absolute top-3 right-3 flex items-center gap-1 text-xs font-semibold text-primary px-2.5 py-1 rounded-full" style={{ backgroundColor: "color-mix(in oklch, var(--primary) 10%, transparent)" }}>
+                      <Trophy className="h-3 w-3" />
+                      Vencedora
+                    </div>
+                  )}
+                  <p className="text-xs font-bold text-primary mb-1">VARIANTE {v.toUpperCase()}</p>
+                  <p className="text-sm font-medium mb-4 truncate pr-20">{subject || "—"}</p>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <p className="text-xl font-bold">{data.sent.toLocaleString("pt-BR")}</p>
+                      <p className="text-xs text-muted-foreground">enviados</p>
+                    </div>
+                    <div>
+                      <p className="text-xl font-bold">{data.uniqueOpens.toLocaleString("pt-BR")}</p>
+                      <p className="text-xs text-muted-foreground">aberturas</p>
+                    </div>
+                    <div>
+                      <p className="text-xl font-bold">{data.uniqueClicks.toLocaleString("pt-BR")}</p>
+                      <p className="text-xs text-muted-foreground">cliques</p>
+                    </div>
+                  </div>
+                  <div className="mt-4 pt-3 border-t border-border/40">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs text-muted-foreground">{abResults.criteria === "open_rate" ? "Taxa de abertura" : "Taxa de cliques"}</span>
+                      <span className="text-sm font-bold text-primary">{(rate * 100).toFixed(1)}%</span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${Math.min(rate * 100, 100)}%` }} />
+                    </div>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+          {abResults.winner === "tie" && (
+            <p className="text-sm text-muted-foreground mt-3 text-center">As variantes estão empatadas no critério selecionado.</p>
+          )}
+        </div>
+      )}
 
       {/* Tracked links */}
       {links && links.length > 0 && (

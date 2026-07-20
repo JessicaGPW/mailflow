@@ -554,6 +554,102 @@ export async function deleteCampaign(orgId: number, id: number) {
   await db.delete(campaigns).where(and(eq(campaigns.id, id), eq(campaigns.orgId, orgId)));
 }
 
+export async function getCampaignRecipients(orgId: number, listId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+  if (listId) {
+    const rows = await db
+      .select({ id: contacts.id, email: contacts.email })
+      .from(contactListMemberships)
+      .innerJoin(contacts, eq(contactListMemberships.contactId, contacts.id))
+      .where(and(eq(contactListMemberships.listId, listId), eq(contacts.orgId, orgId), eq(contacts.status, 'subscribed')));
+    return rows;
+  }
+  return await db
+    .select({ id: contacts.id, email: contacts.email })
+    .from(contacts)
+    .where(and(eq(contacts.orgId, orgId), eq(contacts.status, 'subscribed')));
+}
+
+export async function createCampaignSend(campaignId: number, contactId: number, recipientEmail: string, variant: 'a' | 'b' = 'a') {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(campaignSends).values({
+    campaignId,
+    contactId,
+    recipientEmail,
+    variant,
+    status: 'sent',
+    sentAt: new Date(),
+    deliveredAt: new Date(),
+  });
+}
+
+export async function createCampaignSendFull(
+  campaignId: number,
+  contactId: number,
+  recipientEmail: string,
+  variant: 'a' | 'b',
+  status: 'sent' | 'failed',
+  messageId?: string,
+  error?: string,
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(campaignSends).values({
+    campaignId,
+    contactId,
+    recipientEmail,
+    variant,
+    status,
+    message_id: messageId,
+    error,
+    sentAt: status === 'sent' ? new Date() : undefined,
+    deliveredAt: status === 'sent' ? new Date() : undefined,
+  });
+}
+
+export async function getAbTestResults(campaignId: number) {
+  const db = await getDb();
+  const empty = { sent: 0, uniqueOpens: 0, uniqueClicks: 0, bounces: 0 };
+  if (!db) return { a: { ...empty }, b: { ...empty } };
+
+  // Sends per variant
+  const sendRows = await db
+    .select({ variant: campaignSends.variant, total: count() })
+    .from(campaignSends)
+    .where(eq(campaignSends.campaignId, campaignId))
+    .groupBy(campaignSends.variant);
+
+  // Events per variant (join events -> sends by contact for variant attribution)
+  const eventRows = await db
+    .select({
+      variant: campaignSends.variant,
+      type: emailEvents.type,
+      contacts: sql<number>`COUNT(DISTINCT ${emailEvents.contactId})`,
+    })
+    .from(emailEvents)
+    .innerJoin(campaignSends, and(
+      eq(emailEvents.campaignId, campaignSends.campaignId),
+      eq(emailEvents.contactId, campaignSends.contactId),
+    ))
+    .where(eq(emailEvents.campaignId, campaignId))
+    .groupBy(campaignSends.variant, emailEvents.type);
+
+  const result = { a: { ...empty }, b: { ...empty } };
+  for (const row of sendRows) {
+    const v = row.variant === 'b' ? 'b' : 'a';
+    result[v].sent = Number(row.total);
+  }
+  for (const row of eventRows) {
+    const v = row.variant === 'b' ? 'b' : 'a';
+    if (row.type === 'open') result[v].uniqueOpens = Number(row.contacts);
+    else if (row.type === 'click') result[v].uniqueClicks = Number(row.contacts);
+    else if (row.type === 'bounce') result[v].bounces = Number(row.contacts);
+  }
+  return result;
+}
+
 export async function getCampaignSends(campaignId: number, limit = 50, offset = 0) {
   const db = await getDb();
   if (!db) return [];
@@ -594,6 +690,15 @@ export async function createEmailLink(campaignId: number, url: string, shortId: 
   await db.insert(emailLinks).values({ campaignId, url, shortId });
   const result = await db.select().from(emailLinks).where(eq(emailLinks.shortId, shortId)).limit(1);
   return result[0];
+}
+
+export async function getOrCreateEmailLink(campaignId: number, url: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const existing = await db.select().from(emailLinks).where(and(eq(emailLinks.campaignId, campaignId), eq(emailLinks.url, url))).limit(1);
+  if (existing.length > 0) return existing[0];
+  const shortId = Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+  return createEmailLink(campaignId, url, shortId);
 }
 
 // ─────────────────────────────────────────────

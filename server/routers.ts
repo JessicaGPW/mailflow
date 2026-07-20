@@ -3,6 +3,8 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { notifyOwner } from "./_core/notification";
+import { invokeLLM } from "./_core/llm";
+import { sendCampaign as sendCampaignPipeline } from "./emailSender";
 import { z } from "zod";
 import { eq, and, sql, desc } from "drizzle-orm";
 import * as db from "./db";
@@ -169,8 +171,13 @@ const createCampaignSchema = z.object({
   replyTo: z.string().max(320).optional(),
   htmlContent: z.string().optional(),
   textContent: z.string().optional(),
+  designJson: z.string().optional(),
   targetListId: z.number().optional(),
   targetSegmentId: z.number().optional(),
+  isAbTest: z.boolean().optional(),
+  abSubjectB: z.string().max(500).optional(),
+  abHtmlContentB: z.string().optional(),
+  abWinnerCriteria: z.enum(['open_rate', 'click_rate']).optional(),
 });
 
 const updateCampaignSchema = z.object({
@@ -184,10 +191,15 @@ const updateCampaignSchema = z.object({
   replyTo: z.string().max(320).optional(),
   htmlContent: z.string().optional(),
   textContent: z.string().optional(),
+  designJson: z.string().optional(),
   targetListId: z.number().optional(),
   targetSegmentId: z.number().optional(),
   status: z.enum(['draft', 'scheduled', 'sending', 'sent', 'paused', 'failed']).optional(),
   scheduledAt: z.date().optional(),
+  isAbTest: z.boolean().optional(),
+  abSubjectB: z.string().max(500).optional(),
+  abHtmlContentB: z.string().optional(),
+  abWinnerCriteria: z.enum(['open_rate', 'click_rate']).optional(),
 });
 
 const createAutomationSchema = z.object({
@@ -732,12 +744,66 @@ export const appRouter = router({
       if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
       const campaign = await db.getCampaignById(input.orgId, input.id);
       if (!campaign) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (campaign.isAbTest && !campaign.abSubjectB) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Teste A/B ativado: defina o assunto da variante B antes de enviar.' });
+      }
       // Mark as sending
       await db.updateCampaign(input.orgId, input.id, { status: 'sending' });
-      // In production, this would queue emails via SMTP provider
-      // For now, simulate by marking as sent
-      await db.updateCampaign(input.orgId, input.id, { status: 'sent', sentAt: new Date() });
-      return { success: true, message: 'Campaign send initiated' };
+
+      // Full pipeline: variant-aware rendering (A/B), tracking injection
+      // (open pixel, click redirects, unsubscribe) and provider dispatch.
+      const result = await sendCampaignPipeline(campaign);
+
+      const failedAll = result.totalRecipients > 0 && result.sent === 0;
+      await db.updateCampaign(input.orgId, input.id, {
+        status: failedAll ? 'failed' : 'sent',
+        sentAt: new Date(),
+        totalRecipients: result.totalRecipients,
+        totalSent: result.sent,
+        totalDelivered: result.sent,
+      });
+
+      // Notify platform owner on dispatch failure (critical event)
+      if (result.failed > 0) {
+        void notifyOwner({
+          title: 'MailFlow: falha no disparo de campanha',
+          content: `Campanha "${campaign.name}" (org ${input.orgId}): ${result.failed} de ${result.totalRecipients} envios falharam.${result.firstError ? ` Primeiro erro: ${result.firstError}` : ''}`,
+        }).catch(() => {});
+      }
+
+      return {
+        success: !failedAll,
+        message: result.sandbox
+          ? 'Disparo processado em modo sandbox (nenhum provedor SMTP configurado — configure em Configurações SMTP para envio real)'
+          : 'Campaign send initiated',
+        totalRecipients: result.totalRecipients,
+        sent: result.sent,
+        failed: result.failed,
+        variantACount: result.variantACount,
+        variantBCount: result.variantBCount,
+        sandbox: result.sandbox,
+      };
+    }),
+
+    abResults: protectedProcedure.input(z.object({ orgId: z.number(), campaignId: z.number() })).query(async ({ ctx, input }) => {
+      const org = await getUserOrg(ctx.user.id, input.orgId);
+      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
+      const campaign = await db.getCampaignById(input.orgId, input.campaignId);
+      if (!campaign) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (!campaign.isAbTest) return null;
+      const results = await db.getAbTestResults(input.campaignId);
+      const criteria = campaign.abWinnerCriteria || 'open_rate';
+      const rateOf = (v: typeof results.a) => {
+        if (v.sent === 0) return 0;
+        return criteria === 'open_rate' ? v.uniqueOpens / v.sent : v.uniqueClicks / v.sent;
+      };
+      const rateA = rateOf(results.a);
+      const rateB = rateOf(results.b);
+      let winner: 'a' | 'b' | 'tie' | null = null;
+      if (results.a.sent > 0 || results.b.sent > 0) {
+        winner = rateA > rateB ? 'a' : rateB > rateA ? 'b' : 'tie';
+      }
+      return { ...results, criteria, rateA, rateB, winner };
     }),
   }),
 
@@ -944,6 +1010,136 @@ export const appRouter = router({
       const recentCampaigns = await db.getRecentCampaigns(input.orgId, 5);
       return { ...metrics, recentCampaigns };
     }),
+  }),
+
+  // ─────────────────────────────────────────────
+  // AI Assistant (subject suggestions + content optimization)
+  // ─────────────────────────────────────────────
+  ai: router({
+    suggestSubjects: protectedProcedure
+      .input(z.object({
+        orgId: z.number(),
+        topic: z.string().min(1).max(2000),
+        audience: z.string().max(500).optional(),
+        tone: z.enum(['professional', 'friendly', 'urgent', 'curious']).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
+
+        const toneMap: Record<string, string> = {
+          professional: 'profissional e confiável',
+          friendly: 'amigável e acolhedor',
+          urgent: 'com senso de urgência (sem exagerar)',
+          curious: 'que desperta curiosidade',
+        };
+
+        const response = await invokeLLM({
+          messages: [
+            {
+              role: 'system',
+              content: `Você é um especialista em copywriting de e-mail marketing em português brasileiro. Gere linhas de assunto que maximizam taxa de abertura. Regras: máximo ~50 caracteres por assunto; evite palavras que disparam filtros de spam (GRÁTIS!!!, dinheiro fácil, clique aqui); evite CAPS LOCK excessivo; o preheader deve complementar (não repetir) o assunto; responda APENAS com JSON válido.`,
+            },
+            {
+              role: 'user',
+              content: `Gere exatamente 5 sugestões de linha de assunto para um e-mail sobre: "${input.topic}".${input.audience ? ` Público-alvo: ${input.audience}.` : ''}${input.tone ? ` Tom desejado: ${toneMap[input.tone]}.` : ''} Para cada sugestão inclua um preheader complementar e uma breve justificativa.`,
+            },
+          ],
+          response_format: {
+            type: 'json_schema',
+            json_schema: {
+              name: 'subject_suggestions',
+              strict: true,
+              schema: {
+                type: 'object',
+                properties: {
+                  suggestions: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        subject: { type: 'string', description: 'Linha de assunto (máx ~50 chars)' },
+                        preheader: { type: 'string', description: 'Preheader complementar' },
+                        rationale: { type: 'string', description: 'Justificativa breve' },
+                      },
+                      required: ['subject', 'preheader', 'rationale'],
+                      additionalProperties: false,
+                    },
+                  },
+                },
+                required: ['suggestions'],
+                additionalProperties: false,
+              },
+            },
+          },
+        });
+
+        const raw = response.choices[0]?.message?.content;
+        const text = typeof raw === 'string' ? raw : JSON.stringify(raw);
+        try {
+          const parsed = JSON.parse(text) as { suggestions: Array<{ subject: string; preheader: string; rationale: string }> };
+          return parsed;
+        } catch {
+          throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Falha ao interpretar resposta da IA' });
+        }
+      }),
+
+    optimizeContent: protectedProcedure
+      .input(z.object({
+        orgId: z.number(),
+        content: z.string().min(1).max(50000),
+        goal: z.enum(['clarity', 'engagement', 'conversion', 'shorten']),
+        isHtml: z.boolean().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
+
+        const goalMap: Record<string, string> = {
+          clarity: 'melhorar a clareza e legibilidade, simplificando frases longas',
+          engagement: 'aumentar o engajamento com linguagem mais envolvente e pessoal',
+          conversion: 'otimizar para conversão com CTAs mais fortes e senso de valor',
+          shorten: 'encurtar o texto mantendo a mensagem essencial',
+        };
+
+        const response = await invokeLLM({
+          messages: [
+            {
+              role: 'system',
+              content: `Você é um especialista em copywriting de e-mail marketing em português brasileiro. Otimize o texto do e-mail fornecido. ${input.isHtml ? 'O conteúdo está em HTML — PRESERVE toda a estrutura de tags HTML, otimizando apenas os textos visíveis.' : 'O conteúdo é texto simples.'} Responda APENAS com JSON válido.`,
+            },
+            {
+              role: 'user',
+              content: `Objetivo: ${goalMap[input.goal]}.\n\nConteúdo original:\n${input.content}\n\nRetorne o conteúdo otimizado e uma lista das principais mudanças feitas (em português).`,
+            },
+          ],
+          response_format: {
+            type: 'json_schema',
+            json_schema: {
+              name: 'optimized_content',
+              strict: true,
+              schema: {
+                type: 'object',
+                properties: {
+                  optimized: { type: 'string', description: 'Conteúdo otimizado' },
+                  changes: { type: 'array', items: { type: 'string' }, description: 'Mudanças feitas' },
+                },
+                required: ['optimized', 'changes'],
+                additionalProperties: false,
+              },
+            },
+          },
+        });
+
+        const raw = response.choices[0]?.message?.content;
+        const text = typeof raw === 'string' ? raw : JSON.stringify(raw);
+        try {
+          const parsed = JSON.parse(text) as { optimized: string; changes: string[] };
+          return parsed;
+        } catch {
+          throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Falha ao interpretar resposta da IA' });
+        }
+      }),
   }),
 });
 
