@@ -241,6 +241,13 @@ export const campaigns = mysqlTable("campaigns", {
   abSubjectB: varchar("abSubjectB", { length: 500 }),
   abHtmlContentB: longtext("abHtmlContentB"),
   abWinnerCriteria: mysqlEnum("abWinnerCriteria", ["open_rate", "click_rate"]).default("open_rate"),
+  // A/B auto-winner rollout: send test to abTestPercent% of audience, wait abWaitHours, then auto-send winner to the rest
+  abAutoWinner: boolean("abAutoWinner").default(false).notNull(),
+  abTestPercent: int("abTestPercent").default(20),
+  abWaitHours: int("abWaitHours").default(4),
+  abWinnerVariant: mysqlEnum("abWinnerVariant", ["a", "b"]),
+  abWinnerSentAt: datetime("abWinnerSentAt"),
+  scheduleCronTaskUid: varchar("scheduleCronTaskUid", { length: 65 }),
   createdBy: int("createdBy"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

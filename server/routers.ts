@@ -5,6 +5,9 @@ import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { notifyOwner } from "./_core/notification";
 import { invokeLLM } from "./_core/llm";
 import { sendCampaign as sendCampaignPipeline } from "./emailSender";
+import { createHeartbeatJob } from "./_core/heartbeat";
+import { verifyDomainDns } from "./dnsVerifier";
+import { parse as parseCookie } from "cookie";
 import { z } from "zod";
 import { eq, and, sql, desc } from "drizzle-orm";
 import * as db from "./db";
@@ -178,6 +181,9 @@ const createCampaignSchema = z.object({
   abSubjectB: z.string().max(500).optional(),
   abHtmlContentB: z.string().optional(),
   abWinnerCriteria: z.enum(['open_rate', 'click_rate']).optional(),
+  abAutoWinner: z.boolean().optional(),
+  abTestPercent: z.number().min(5).max(100).optional(),
+  abWaitHours: z.number().min(1).max(168).optional(),
 });
 
 const updateCampaignSchema = z.object({
@@ -200,6 +206,9 @@ const updateCampaignSchema = z.object({
   abSubjectB: z.string().max(500).optional(),
   abHtmlContentB: z.string().optional(),
   abWinnerCriteria: z.enum(['open_rate', 'click_rate']).optional(),
+  abAutoWinner: z.boolean().optional(),
+  abTestPercent: z.number().min(5).max(100).optional(),
+  abWaitHours: z.number().min(1).max(168).optional(),
 });
 
 const createAutomationSchema = z.object({
@@ -771,6 +780,35 @@ export const appRouter = router({
         }).catch(() => {});
       }
 
+      // A/B auto-winner: schedule the winner rollout via Heartbeat
+      let winnerScheduled = false;
+      let winnerScheduleError: string | undefined;
+      if (!failedAll && campaign.isAbTest && campaign.abAutoWinner && result.heldForWinner > 0) {
+        try {
+          const sessionToken = parseCookie(ctx.req.headers.cookie ?? '')[COOKIE_NAME] ?? '';
+          const waitHours = Math.min(Math.max(campaign.abWaitHours ?? 4, 1), 168);
+          const runAt = new Date(Date.now() + waitHours * 3600 * 1000);
+          // One-shot semantics: cron fires at a specific minute; handler is idempotent
+          // (abWinnerSentAt guard) so subsequent fires are no-ops.
+          const cron = `0 ${runAt.getUTCMinutes()} ${runAt.getUTCHours()} ${runAt.getUTCDate()} ${runAt.getUTCMonth() + 1} *`;
+          const job = await createHeartbeatJob({
+            name: `ab-winner-${campaign.id}`,
+            cron,
+            path: '/api/scheduled/abWinner',
+            payload: { campaignId: campaign.id },
+            description: `Envio automático da variante vencedora da campanha "${campaign.name}" após ${waitHours}h de teste`,
+          }, sessionToken);
+          await db.updateCampaign(input.orgId, input.id, { scheduleCronTaskUid: job.taskUid });
+          winnerScheduled = true;
+        } catch (e) {
+          winnerScheduleError = e instanceof Error ? e.message : 'Falha ao agendar envio da vencedora';
+          void notifyOwner({
+            title: 'MailFlow: falha ao agendar envio da variante vencedora',
+            content: `Campanha "${campaign.name}" (org ${input.orgId}): ${winnerScheduleError}`,
+          }).catch(() => {});
+        }
+      }
+
       return {
         success: !failedAll,
         message: result.sandbox
@@ -781,6 +819,9 @@ export const appRouter = router({
         failed: result.failed,
         variantACount: result.variantACount,
         variantBCount: result.variantBCount,
+        heldForWinner: result.heldForWinner,
+        winnerScheduled,
+        winnerScheduleError,
         sandbox: result.sandbox,
       };
     }),
@@ -944,6 +985,27 @@ export const appRouter = router({
           status: domain.dmarcStatus,
         },
       };
+    }),
+
+    verify: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).mutation(async ({ ctx, input }) => {
+      const org = await getUserOrg(ctx.user.id, input.orgId);
+      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
+      const domain = await db.getSendingDomainById(input.orgId, input.id);
+      if (!domain) throw new TRPCError({ code: 'NOT_FOUND' });
+
+      // Live DNS resolution of SPF, DKIM and DMARC TXT records,
+      // comparing against the platform-required SPF include and the
+      // domain's expected DKIM public key when available.
+      const result = await verifyDomainDns(domain.domain, domain.dkimSelector || 'mailflow', domain.dkimPublicKey);
+
+      await db.updateSendingDomain(input.orgId, input.id, {
+        spfStatus: result.spf.status,
+        dkimStatus: result.dkim.status,
+        dmarcStatus: result.dmarc.status,
+        verificationStatus: result.allVerified ? 'verified' : 'failed',
+      });
+
+      return result;
     }),
   }),
 

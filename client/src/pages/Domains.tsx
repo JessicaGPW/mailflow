@@ -5,9 +5,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Globe, Plus, Trash2, Check, X, AlertCircle, Copy } from "lucide-react";
+import { Globe, Plus, Trash2, Check, X, AlertCircle, Copy, RefreshCw, ShieldCheck } from "lucide-react";
 import { useState, useCallback } from "react";
 import { toast } from "sonner";
+
+type VerifyResult = {
+  spf: { status: string; found: string[]; message: string };
+  dkim: { status: string; found: string[]; message: string };
+  dmarc: { status: string; found: string[]; message: string };
+  allVerified: boolean;
+  checkedAt: string;
+};
 
 export default function Domains() {
   const orgId = useOrgId();
@@ -20,10 +28,33 @@ export default function Domains() {
   const deleteMutation = trpc.sendingDomains.delete.useMutation({
     onSuccess: () => { toast.success("Domínio removido"); utils.sendingDomains.list.invalidate(); },
   });
+  const verifyMutation = trpc.sendingDomains.verify.useMutation();
 
   const [showAdd, setShowAdd] = useState(false);
   const [newDomain, setNewDomain] = useState({ domain: "", dkimSelector: "mailflow" });
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [verifyingId, setVerifyingId] = useState<number | null>(null);
+  const [verifyResults, setVerifyResults] = useState<Record<number, VerifyResult>>({});
+
+  const handleVerify = useCallback((id: number) => {
+    if (!orgId) return;
+    setVerifyingId(id);
+    verifyMutation.mutate({ orgId, id }, {
+      onSuccess: (result) => {
+        setVerifyResults(prev => ({ ...prev, [id]: result as VerifyResult }));
+        setExpandedId(id);
+        utils.sendingDomains.list.invalidate();
+        if (result.allVerified) {
+          toast.success("Todos os registros DNS foram verificados com sucesso!");
+        } else {
+          const failed = [result.spf.status !== "verified" && "SPF", result.dkim.status !== "verified" && "DKIM", result.dmarc.status !== "verified" && "DMARC"].filter(Boolean).join(", ");
+          toast.error(`Verificação falhou: ${failed}. Veja os detalhes abaixo.`);
+        }
+      },
+      onError: (e) => toast.error(e.message || "Erro ao verificar DNS"),
+      onSettled: () => setVerifyingId(null),
+    });
+  }, [orgId, verifyMutation, utils]);
 
   const handleCreate = useCallback(() => {
     if (!orgId || !newDomain.domain) return;
@@ -109,6 +140,13 @@ export default function Domains() {
                     </div>
                   </div>
                   <div className="flex gap-2">
+                    <Button size="sm" onClick={() => handleVerify(d.id)} disabled={verifyingId === d.id} className="shadow-premium">
+                      {verifyingId === d.id ? (
+                        <><RefreshCw className="mr-1.5 h-3.5 w-3.5 animate-spin" /> Verificando...</>
+                      ) : (
+                        <><ShieldCheck className="mr-1.5 h-3.5 w-3.5" /> Verificar DNS</>
+                      )}
+                    </Button>
                     <Button variant="outline" size="sm" onClick={() => setExpandedId(expandedId === d.id ? null : d.id)}>
                       {expandedId === d.id ? "Ocultar DNS" : "Ver DNS"}
                     </Button>
@@ -183,7 +221,32 @@ export default function Domains() {
                     </div>
                   </div>
 
-                  <p className="text-xs text-muted-foreground">Após configurar os registros DNS no seu provedor, clique em verificar para checar o status.</p>
+                  {/* Live verification results */}
+                  {verifyResults[d.id] && (
+                    <div className="bg-card rounded-lg p-4 border border-border/50 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-muted-foreground">Resultado da verificação DNS ao vivo</span>
+                        <span className="text-[11px] text-muted-foreground">{new Date(verifyResults[d.id].checkedAt).toLocaleString("pt-BR")}</span>
+                      </div>
+                      {(["spf", "dkim", "dmarc"] as const).map(key => {
+                        const check = verifyResults[d.id][key];
+                        return (
+                          <div key={key} className="flex items-start gap-2.5">
+                            <StatusIcon status={check.status} />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-medium uppercase">{key}</p>
+                              <p className="text-xs text-muted-foreground mt-0.5">{check.message}</p>
+                              {check.found.length > 0 && (
+                                <code className="block text-[11px] bg-muted px-2 py-1 rounded mt-1 break-all">{check.found[0]}</code>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <p className="text-xs text-muted-foreground">Após configurar os registros DNS no seu provedor, clique em “Verificar DNS” para resolver os registros TXT em tempo real e atualizar o status.</p>
                 </div>
               )}
             </Card>

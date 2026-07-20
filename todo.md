@@ -62,3 +62,15 @@
 - [x] Teste A/B: frontend (criação de variantes de assunto/conteúdo, visualização de resultados com vencedora)
 - [x] Testes vitest para novas procedures (IA, A/B) — 16 testes passando
 - [x] Checkpoint final das novas funcionalidades
+
+## Novas Funcionalidades (Rodada 3)
+- [x] Envio automático da variante vencedora A/B: schema (abTestPercent, abWaitHours, abWinnerSentAt)
+- [x] Envio automático da variante vencedora A/B: pipeline (enviar teste para % da base, resto aguarda)
+- [x] Envio automático da variante vencedora A/B: job agendado (Heartbeat) que apura vencedora e dispara restante
+- [x] Envio automático da variante vencedora A/B: UI no editor (percentual de teste + período de espera)
+- [x] Galeria de templates pré-montados no construtor visual (newsletter, promoção, boas-vindas, anúncio)
+- [x] Verificação real de DNS: backend com dns.promises.resolveTxt (SPF, DKIM, DMARC)
+- [x] Verificação real de DNS: botão "Verificar" na página de domínios com status atualizado
+- [x] Testes vitest para novas funcionalidades — 27 testes passando
+- [ ] Atualizar skill email-marketing-saas-builder com novos padrões
+- [ ] Checkpoint final da rodada 3

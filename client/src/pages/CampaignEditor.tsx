@@ -9,7 +9,8 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmailBuilder, compileToEmailHtml, compileToPlainText, type EmailBlock } from "@/components/EmailBuilder";
 import { SubjectSuggestDialog, ContentOptimizeDialog } from "@/components/AiAssistantPanel";
-import { ArrowLeft, Save, Send, Sparkles, Wand2, FlaskConical, LayoutTemplate, Code } from "lucide-react";
+import { TemplateGalleryDialog } from "@/components/EmailTemplateGallery";
+import { ArrowLeft, Save, Send, Sparkles, Wand2, FlaskConical, LayoutTemplate, Code, LayoutGrid } from "lucide-react";
 import { Link, useParams } from "wouter";
 import { useState, useCallback, useEffect } from "react";
 import { toast } from "sonner";
@@ -42,6 +43,9 @@ export default function CampaignEditor() {
     abSubjectB: "",
     abHtmlContentB: "",
     abWinnerCriteria: "open_rate" as "open_rate" | "click_rate",
+    abAutoWinner: false,
+    abTestPercent: 20,
+    abWaitHours: 4,
   });
 
   const [blocks, setBlocks] = useState<EmailBlock[]>([]);
@@ -49,6 +53,7 @@ export default function CampaignEditor() {
   const [showSubjectAi, setShowSubjectAi] = useState(false);
   const [showSubjectAiB, setShowSubjectAiB] = useState(false);
   const [showOptimizeAi, setShowOptimizeAi] = useState(false);
+  const [showGallery, setShowGallery] = useState(false);
 
   useEffect(() => {
     if (existingCampaign) {
@@ -67,6 +72,9 @@ export default function CampaignEditor() {
         abSubjectB: existingCampaign.abSubjectB || "",
         abHtmlContentB: existingCampaign.abHtmlContentB || "",
         abWinnerCriteria: (existingCampaign.abWinnerCriteria as "open_rate" | "click_rate") || "open_rate",
+        abAutoWinner: existingCampaign.abAutoWinner ?? false,
+        abTestPercent: existingCampaign.abTestPercent ?? 20,
+        abWaitHours: existingCampaign.abWaitHours ?? 4,
       });
       // Restore design blocks if saved
       if (existingCampaign.designJson) {
@@ -221,6 +229,48 @@ export default function CampaignEditor() {
                   <div className="px-3 py-2 rounded-lg bg-muted text-sm text-muted-foreground">50% variante A · 50% variante B</div>
                 </div>
               </div>
+
+              {/* Auto-winner rollout */}
+              <div className="rounded-xl border border-border/60 p-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Envio automático da vencedora</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Envie o teste para uma parte da base e, após o período definido, a variante vencedora é disparada automaticamente para o restante.</p>
+                  </div>
+                  <Switch checked={form.abAutoWinner} onCheckedChange={v => setForm(p => ({ ...p, abAutoWinner: v }))} />
+                </div>
+                {form.abAutoWinner && (
+                  <div className="grid md:grid-cols-2 gap-4 pt-1">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Amostra de teste: {form.abTestPercent}% da base</Label>
+                      <input
+                        type="range" min={5} max={50} step={5}
+                        value={form.abTestPercent}
+                        onChange={e => setForm(p => ({ ...p, abTestPercent: parseInt(e.target.value) }))}
+                        className="w-full"
+                      />
+                      <p className="text-[11px] text-muted-foreground">Os {100 - form.abTestPercent}% restantes recebem a vencedora</p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Período de teste</Label>
+                      <select
+                        className="w-full rounded-lg border border-input px-3 py-2 text-sm bg-background"
+                        value={form.abWaitHours}
+                        onChange={e => setForm(p => ({ ...p, abWaitHours: parseInt(e.target.value) }))}
+                      >
+                        <option value={1}>1 hora</option>
+                        <option value={2}>2 horas</option>
+                        <option value={4}>4 horas</option>
+                        <option value={8}>8 horas</option>
+                        <option value={12}>12 horas</option>
+                        <option value={24}>24 horas</option>
+                        <option value={48}>48 horas</option>
+                      </select>
+                      <p className="text-[11px] text-muted-foreground">Após esse período, a vencedora é enviada automaticamente</p>
+                    </div>
+                  </div>
+                )}
+              </div>
               <div className="space-y-1.5">
                 <Label className="text-xs">Conteúdo HTML alternativo da variante B (opcional — se vazio, usa o conteúdo principal)</Label>
                 <Textarea
@@ -279,10 +329,16 @@ export default function CampaignEditor() {
         <Card className="p-6 shadow-premium border-border/50">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold">Conteúdo do e-mail</h2>
-            <Button variant="ghost" size="sm" className="text-primary hover:text-primary" onClick={() => setShowOptimizeAi(true)}>
-              <Wand2 className="mr-1.5 h-3.5 w-3.5" />
-              Otimizar com IA
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button variant="ghost" size="sm" className="text-primary hover:text-primary" onClick={() => setShowGallery(true)}>
+                <LayoutGrid className="mr-1.5 h-3.5 w-3.5" />
+                Galeria de templates
+              </Button>
+              <Button variant="ghost" size="sm" className="text-primary hover:text-primary" onClick={() => setShowOptimizeAi(true)}>
+                <Wand2 className="mr-1.5 h-3.5 w-3.5" />
+                Otimizar com IA
+              </Button>
+            </div>
           </div>
 
           <Tabs value={contentMode} onValueChange={v => setContentMode(v as "visual" | "html")}>
@@ -341,6 +397,21 @@ export default function CampaignEditor() {
           )}
         </div>
       </div>
+
+      {/* Template gallery */}
+      <TemplateGalleryDialog
+        open={showGallery}
+        onOpenChange={setShowGallery}
+        onApply={(newBlocks, templateName) => {
+          if (blocks.length > 0) {
+            const ok = window.confirm("Substituir o conteúdo atual do editor visual pelo template \"" + templateName + "\"?");
+            if (!ok) return;
+          }
+          setBlocks(newBlocks);
+          setContentMode("visual");
+          toast.success(`Template "${templateName}" aplicado`);
+        }}
+      />
 
       {/* AI Dialogs */}
       {orgId && (

@@ -9,6 +9,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { registerTrackingRoutes } from "./tracking";
+import { abWinnerHandler } from "../scheduledHandlers";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -38,6 +39,8 @@ async function startServer() {
   registerStorageProxy(app);
   registerOAuthRoutes(app);
   registerTrackingRoutes(app);
+  // Heartbeat scheduled callbacks (must be before Vite/static fallthrough)
+  app.post("/api/scheduled/abWinner", abWinnerHandler);
   // tRPC API
   app.use(
     "/api/trpc",

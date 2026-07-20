@@ -609,6 +609,20 @@ export async function createCampaignSendFull(
   });
 }
 
+export async function getSentContactIds(campaignId: number): Promise<Set<number>> {
+  const db = await getDb();
+  if (!db) return new Set();
+  const rows = await db.select({ contactId: campaignSends.contactId }).from(campaignSends).where(eq(campaignSends.campaignId, campaignId));
+  return new Set(rows.map(r => r.contactId));
+}
+
+export async function getCampaignByCronTaskUid(taskUid: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(campaigns).where(eq(campaigns.scheduleCronTaskUid, taskUid)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
 export async function getAbTestResults(campaignId: number) {
   const db = await getDb();
   const empty = { sent: 0, uniqueOpens: 0, uniqueClicks: 0, bounces: 0 };

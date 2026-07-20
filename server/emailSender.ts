@@ -148,11 +148,7 @@ export async function dispatchEmail(
   }
 }
 
-/**
- * Send a campaign to all recipients with A/B variant splitting,
- * tracking injection and per-send records.
- */
-export async function sendCampaign(campaign: Campaign): Promise<{
+export type SendResult = {
   totalRecipients: number;
   sent: number;
   failed: number;
@@ -160,8 +156,15 @@ export async function sendCampaign(campaign: Campaign): Promise<{
   variantBCount: number;
   sandbox: boolean;
   firstError?: string;
-}> {
-  const recipients = await db.getCampaignRecipients(campaign.orgId, campaign.targetListId ?? undefined);
+  /** number of recipients held back for the auto-winner rollout */
+  heldForWinner: number;
+};
+
+async function dispatchToRecipients(
+  campaign: Campaign,
+  recipients: Array<{ id: number; email: string }>,
+  pickVariant: (index: number) => "a" | "b",
+): Promise<Omit<SendResult, "totalRecipients" | "heldForWinner">> {
   const smtpConfig = await db.getDefaultSmtpConfig(campaign.orgId);
   const fromName = campaign.fromName || "MailFlow";
   const fromEmail = campaign.fromEmail || smtpConfig?.fromEmail || "noreply@mailflow.app";
@@ -175,7 +178,7 @@ export async function sendCampaign(campaign: Campaign): Promise<{
 
   for (let i = 0; i < recipients.length; i++) {
     const r = recipients[i];
-    const variant: "a" | "b" = campaign.isAbTest ? (i % 2 === 0 ? "a" : "b") : "a";
+    const variant = pickVariant(i);
     if (variant === "a") variantACount++;
     else variantBCount++;
 
@@ -203,5 +206,70 @@ export async function sendCampaign(campaign: Campaign): Promise<{
     }
   }
 
-  return { totalRecipients: recipients.length, sent, failed, variantACount, variantBCount, sandbox, firstError };
+  return { sent, failed, variantACount, variantBCount, sandbox, firstError };
+}
+
+/**
+ * Send a campaign with A/B variant splitting, tracking injection and
+ * per-send records.
+ *
+ * When `abAutoWinner` is enabled, only `abTestPercent`% of the audience
+ * receives the test (split 50/50 between variants); the remainder is held
+ * back until `sendWinnerToRemainder` runs (via Heartbeat after `abWaitHours`).
+ */
+export async function sendCampaign(campaign: Campaign): Promise<SendResult> {
+  const all = await db.getCampaignRecipients(campaign.orgId, campaign.targetListId ?? undefined);
+
+  let testPool = all;
+  let heldForWinner = 0;
+  if (campaign.isAbTest && campaign.abAutoWinner) {
+    const pct = Math.min(Math.max(campaign.abTestPercent ?? 20, 5), 100);
+    const testSize = Math.max(2, Math.ceil((all.length * pct) / 100));
+    testPool = all.slice(0, testSize);
+    heldForWinner = all.length - testPool.length;
+  }
+
+  const stats = await dispatchToRecipients(
+    campaign,
+    testPool,
+    (i) => (campaign.isAbTest ? (i % 2 === 0 ? "a" : "b") : "a"),
+  );
+
+  return { ...stats, totalRecipients: all.length, heldForWinner };
+}
+
+/**
+ * Auto-winner rollout: determine the winning variant from current metrics
+ * and send it to every subscribed recipient that has not received the
+ * campaign yet. Idempotent — skips contacts that already have a send record.
+ */
+export async function sendWinnerToRemainder(campaign: Campaign): Promise<{
+  winner: "a" | "b";
+  sent: number;
+  failed: number;
+  remaining: number;
+  sandbox: boolean;
+  firstError?: string;
+}> {
+  const results = await db.getAbTestResults(campaign.id);
+  const criteria = campaign.abWinnerCriteria || "open_rate";
+  const rateOf = (v: { sent: number; uniqueOpens: number; uniqueClicks: number }) =>
+    v.sent === 0 ? 0 : criteria === "open_rate" ? v.uniqueOpens / v.sent : v.uniqueClicks / v.sent;
+  // Tie favors variant A (original)
+  const winner: "a" | "b" = rateOf(results.b) > rateOf(results.a) ? "b" : "a";
+
+  const all = await db.getCampaignRecipients(campaign.orgId, campaign.targetListId ?? undefined);
+  const alreadySent = await db.getSentContactIds(campaign.id);
+  const remainder = all.filter(r => !alreadySent.has(r.id));
+
+  const stats = await dispatchToRecipients(campaign, remainder, () => winner);
+
+  return {
+    winner,
+    sent: stats.sent,
+    failed: stats.failed,
+    remaining: remainder.length,
+    sandbox: stats.sandbox,
+    firstError: stats.firstError,
+  };
 }
