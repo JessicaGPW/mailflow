@@ -3,8 +3,8 @@ import { trpc } from "@/lib/trpc";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Send, Mail, Eye, MousePointerClick, AlertCircle, UserX, Link2, FlaskConical, Trophy } from "lucide-react";
-import { Link, useParams } from "wouter";
+import { ArrowLeft, Send, Mail, Eye, MousePointerClick, AlertCircle, UserX, Link2, FlaskConical, Trophy, Copy } from "lucide-react";
+import { Link, useParams, useLocation } from "wouter";
 import { useMemo } from "react";
 import { toast } from "sonner";
 
@@ -33,6 +33,15 @@ export default function CampaignDetail() {
   const sendMutation = trpc.campaigns.send.useMutation({
     onSuccess: () => toast.success("Disparo iniciado"),
     onError: (e) => toast.error("Erro: " + e.message),
+  });
+
+  const [, navigate] = useLocation();
+  const duplicateMutation = trpc.campaigns.duplicate.useMutation({
+    onSuccess: (copy) => {
+      toast.success(`Campanha duplicada: "${copy.name}"`);
+      navigate(`/app/campaigns/${copy.id}/edit`);
+    },
+    onError: (e) => toast.error("Erro ao duplicar: " + e.message),
   });
 
   const metrics = useMemo(() => {
@@ -70,12 +79,18 @@ export default function CampaignDetail() {
           </div>
           <p className="text-sm text-muted-foreground">{campaign.subject}</p>
         </div>
-        {campaign.status === "draft" && (
-          <Button onClick={() => sendMutation.mutate({ orgId: orgId!, id: campaignId })} disabled={sendMutation.isPending} className="shadow-premium">
-            <Send className="mr-2 h-4 w-4" />
-            {sendMutation.isPending ? "Enviando..." : "Enviar agora"}
+        <div className="flex gap-2 shrink-0">
+          <Button variant="outline" onClick={() => duplicateMutation.mutate({ orgId: orgId!, id: campaignId })} disabled={duplicateMutation.isPending}>
+            <Copy className="mr-2 h-4 w-4" />
+            {duplicateMutation.isPending ? "Duplicando..." : "Duplicar"}
           </Button>
-        )}
+          {campaign.status === "draft" && (
+            <Button onClick={() => sendMutation.mutate({ orgId: orgId!, id: campaignId })} disabled={sendMutation.isPending} className="shadow-premium">
+              <Send className="mr-2 h-4 w-4" />
+              {sendMutation.isPending ? "Enviando..." : "Enviar agora"}
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Metrics */}

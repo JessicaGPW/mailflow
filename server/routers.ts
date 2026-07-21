@@ -438,6 +438,22 @@ export const appRouter = router({
       if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
       return db.getContactCount(input.orgId);
     }),
+
+    listAdvanced: protectedProcedure.input(z.object({
+      orgId: z.number(),
+      limit: z.number().min(1).max(200).default(50),
+      offset: z.number().min(0).default(0),
+      search: z.string().optional(),
+      tagIds: z.array(z.number()).optional(),
+      listId: z.number().optional(),
+      status: z.enum(['subscribed', 'unsubscribed', 'bounced', 'complained']).optional(),
+      engagement: z.enum(['opened', 'clicked', 'no_engagement']).optional(),
+    })).query(async ({ ctx, input }) => {
+      const org = await getUserOrg(ctx.user.id, input.orgId);
+      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
+      const { orgId, limit, offset, ...filters } = input;
+      return db.getContactsAdvanced(orgId, filters, limit, offset);
+    }),
   }),
 
   // ─────────────────────────────────────────────
@@ -845,6 +861,23 @@ export const appRouter = router({
         winner = rateA > rateB ? 'a' : rateB > rateA ? 'b' : 'tie';
       }
       return { ...results, criteria, rateA, rateB, winner };
+    }),
+
+    duplicate: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).mutation(async ({ ctx, input }) => {
+      const org = await getUserOrg(ctx.user.id, input.orgId);
+      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
+      const copy = await db.duplicateCampaign(input.orgId, input.id);
+      if (!copy) throw new TRPCError({ code: 'NOT_FOUND' });
+      return copy;
+    }),
+
+    comparisonReport: protectedProcedure.input(z.object({
+      orgId: z.number(),
+      limit: z.number().min(2).max(50).default(20),
+    })).query(async ({ ctx, input }) => {
+      const org = await getUserOrg(ctx.user.id, input.orgId);
+      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
+      return db.getCampaignComparisonReport(input.orgId, input.limit);
     }),
   }),
 

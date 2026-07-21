@@ -74,3 +74,15 @@
 - [x] Testes vitest para novas funcionalidades — 27 testes passando
 - [x] Atualizar skill email-marketing-saas-builder com novos padrões
 - [x] Checkpoint final da rodada 3
+
+## Novas Funcionalidades (Rodada 4)
+- [x] Relatórios comparativos: procedure backend com métricas agregadas por campanha ao longo do tempo
+- [x] Relatórios comparativos: página com gráficos de evolução de taxas de abertura/clique e ranking de campanhas
+- [x] Relatórios comparativos: rota e entrada no sidebar
+- [x] Duplicar campanha: procedure backend (copiar conteúdo, design, configurações — status draft)
+- [x] Duplicar campanha: botão na lista de campanhas e na página de detalhe
+- [x] Tags e filtros avançados: gerenciamento de tags nos contatos (criar, atribuir, remover)
+- [x] Tags e filtros avançados: filtros combinados na página de contatos (tag, lista, status, engajamento)
+- [x] Testes vitest para novas funcionalidades — 37 testes passando
+- [x] Atualizar skill email-marketing-saas-builder com novos padrões (rodada 4)
+- [x] Checkpoint final da rodada 4

@@ -19,6 +19,7 @@ import Domains from "./pages/Domains";
 import SmtpSettings from "./pages/SmtpSettings";
 import Team from "./pages/Team";
 import OrgSettings from "./pages/OrgSettings";
+import Reports from "./pages/Reports";
 import AppLayout from "./components/AppLayout";
 
 function AppRouter() {
@@ -33,6 +34,7 @@ function AppRouter() {
             <Route path="/lists" component={Lists} />
             <Route path="/segments" component={Segments} />
             <Route path="/campaigns" component={Campaigns} />
+            <Route path="/reports" component={Reports} />
             <Route path="/campaigns/new" component={CampaignEditor} />
             <Route path="/campaigns/:id" component={CampaignDetail} />
             <Route path="/campaigns/:id/edit" component={CampaignEditor} />

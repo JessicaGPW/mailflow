@@ -2,7 +2,7 @@ import { useOrgId } from "@/hooks/useOrg";
 import { trpc } from "@/lib/trpc";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Mail, Plus, Trash2, Send, Calendar } from "lucide-react";
+import { Mail, Plus, Trash2, Send, Copy } from "lucide-react";
 import { Link } from "wouter";
 import { useCallback } from "react";
 import { toast } from "sonner";
@@ -18,6 +18,10 @@ export default function Campaigns() {
     onSuccess: () => { toast.success("Disparo iniciado"); utils.campaigns.list.invalidate(); },
     onError: (e) => { toast.error("Erro: " + e.message); },
   });
+  const duplicateMutation = trpc.campaigns.duplicate.useMutation({
+    onSuccess: (copy) => { toast.success(`Campanha duplicada: "${copy.name}"`); utils.campaigns.list.invalidate(); },
+    onError: (e) => { toast.error("Erro ao duplicar: " + e.message); },
+  });
 
   const handleDelete = useCallback((id: number) => {
     if (!orgId) return;
@@ -28,6 +32,11 @@ export default function Campaigns() {
     if (!orgId) return;
     sendMutation.mutate({ orgId, id });
   }, [orgId, sendMutation]);
+
+  const handleDuplicate = useCallback((id: number) => {
+    if (!orgId) return;
+    duplicateMutation.mutate({ orgId, id });
+  }, [orgId, duplicateMutation]);
 
   return (
     <div className="p-6 md:p-8 max-w-6xl mx-auto">
@@ -94,6 +103,9 @@ export default function Campaigns() {
                           <Send className="h-4 w-4" />
                         </button>
                       )}
+                      <button onClick={() => handleDuplicate(c.id)} disabled={duplicateMutation.isPending} className="text-muted-foreground hover:text-primary transition-colors p-1 rounded disabled:opacity-50" title="Duplicar campanha">
+                        <Copy className="h-4 w-4" />
+                      </button>
                       <button onClick={() => handleDelete(c.id)} className="text-muted-foreground hover:text-destructive transition-colors p-1 rounded" title="Excluir">
                         <Trash2 className="h-4 w-4" />
                       </button>

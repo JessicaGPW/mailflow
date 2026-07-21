@@ -978,3 +978,140 @@ export async function getRecentCampaigns(orgId: number, limit = 5) {
   if (!db) return [];
   return await db.select().from(campaigns).where(eq(campaigns.orgId, orgId)).orderBy(desc(campaigns.createdAt)).limit(limit);
 }
+
+// ─────────────────────────────────────────────
+// Reports: campaign comparison over time
+// ─────────────────────────────────────────────
+export async function getCampaignComparisonReport(orgId: number, limit = 20) {
+  const db = await getDb();
+  if (!db) return [];
+  // Sent campaigns ordered chronologically by sentAt (oldest first) for trend charts
+  const rows = await db
+    .select()
+    .from(campaigns)
+    .where(and(eq(campaigns.orgId, orgId), inArray(campaigns.status, ['sent', 'sending'])))
+    .orderBy(desc(campaigns.sentAt))
+    .limit(limit);
+
+  return rows.reverse().map(c => {
+    const sent = Number(c.totalSent ?? 0);
+    return {
+      id: c.id,
+      name: c.name,
+      subject: c.subject,
+      sentAt: c.sentAt,
+      totalSent: sent,
+      totalUniqueOpens: Number(c.totalUniqueOpens ?? 0),
+      totalUniqueClicks: Number(c.totalUniqueClicks ?? 0),
+      totalBounces: Number(c.totalBounces ?? 0),
+      totalUnsubscribes: Number(c.totalUnsubscribes ?? 0),
+      openRate: sent > 0 ? (Number(c.totalUniqueOpens ?? 0) / sent) * 100 : 0,
+      clickRate: sent > 0 ? (Number(c.totalUniqueClicks ?? 0) / sent) * 100 : 0,
+      bounceRate: sent > 0 ? (Number(c.totalBounces ?? 0) / sent) * 100 : 0,
+    };
+  });
+}
+
+// ─────────────────────────────────────────────
+// Campaign duplication
+// ─────────────────────────────────────────────
+export async function duplicateCampaign(orgId: number, id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const original = await getCampaignById(orgId, id);
+  if (!original) return undefined;
+
+  const copy: Partial<typeof campaigns.$inferInsert> = {
+    name: `${original.name} (cópia)`,
+    subject: original.subject,
+    preheader: original.preheader,
+    fromName: original.fromName,
+    fromEmail: original.fromEmail,
+    replyTo: original.replyTo,
+    htmlContent: original.htmlContent,
+    textContent: original.textContent,
+    designJson: original.designJson,
+    targetListId: original.targetListId,
+    targetSegmentId: original.targetSegmentId,
+    status: 'draft',
+    isAbTest: original.isAbTest,
+    abSubjectB: original.abSubjectB,
+    abHtmlContentB: original.abHtmlContentB,
+    abWinnerCriteria: original.abWinnerCriteria,
+    abAutoWinner: original.abAutoWinner,
+    abTestPercent: original.abTestPercent,
+    abWaitHours: original.abWaitHours,
+    createdBy: original.createdBy,
+  };
+  return createCampaign(orgId, copy);
+}
+
+// ─────────────────────────────────────────────
+// Contacts: advanced filtering (tags, list, status, engagement)
+// ─────────────────────────────────────────────
+export type ContactAdvancedFilters = {
+  search?: string;
+  tagIds?: number[];
+  listId?: number;
+  status?: 'subscribed' | 'unsubscribed' | 'bounced' | 'complained';
+  engagement?: 'opened' | 'clicked' | 'no_engagement';
+};
+
+export async function getContactsAdvanced(orgId: number, filters: ContactAdvancedFilters, limit = 50, offset = 0) {
+  const db = await getDb();
+  if (!db) return { contacts: [], total: 0 };
+
+  const conditions: any[] = [eq(contacts.orgId, orgId)];
+
+  if (filters.search) {
+    conditions.push(or(
+      like(contacts.email, `%${filters.search}%`),
+      like(contacts.firstName, `%${filters.search}%`),
+      like(contacts.lastName, `%${filters.search}%`),
+    ));
+  }
+  if (filters.status) {
+    conditions.push(eq(contacts.status, filters.status));
+  }
+  if (filters.listId) {
+    conditions.push(sql`${contacts.id} IN (SELECT ${contactListMemberships.contactId} FROM ${contactListMemberships} WHERE ${contactListMemberships.listId} = ${filters.listId})`);
+  }
+  if (filters.tagIds && filters.tagIds.length > 0) {
+    // Contact must have ALL selected tags (AND semantics)
+    for (const tagId of filters.tagIds) {
+      conditions.push(sql`${contacts.id} IN (SELECT ${contactTagAssociations.contactId} FROM ${contactTagAssociations} WHERE ${contactTagAssociations.tagId} = ${tagId})`);
+    }
+  }
+  if (filters.engagement === 'opened') {
+    conditions.push(sql`${contacts.id} IN (SELECT DISTINCT ${emailEvents.contactId} FROM ${emailEvents} WHERE ${emailEvents.type} = 'open')`);
+  } else if (filters.engagement === 'clicked') {
+    conditions.push(sql`${contacts.id} IN (SELECT DISTINCT ${emailEvents.contactId} FROM ${emailEvents} WHERE ${emailEvents.type} = 'click')`);
+  } else if (filters.engagement === 'no_engagement') {
+    conditions.push(sql`${contacts.id} NOT IN (SELECT DISTINCT ${emailEvents.contactId} FROM ${emailEvents} WHERE ${emailEvents.type} IN ('open', 'click') AND ${emailEvents.contactId} IS NOT NULL)`);
+  }
+
+  const where = and(...conditions);
+  const [rows, totalRow] = await Promise.all([
+    db.select().from(contacts).where(where).orderBy(desc(contacts.createdAt)).limit(limit).offset(offset),
+    db.select({ count: count() }).from(contacts).where(where),
+  ]);
+
+  // Attach tags for the returned page
+  const ids = rows.map(r => r.id);
+  let tagsByContact: Record<number, { id: number; name: string; color: string | null }[]> = {};
+  if (ids.length > 0) {
+    const tagRows = await db
+      .select({ contactId: contactTagAssociations.contactId, id: contactTags.id, name: contactTags.name, color: contactTags.color })
+      .from(contactTagAssociations)
+      .innerJoin(contactTags, eq(contactTagAssociations.tagId, contactTags.id))
+      .where(inArray(contactTagAssociations.contactId, ids));
+    for (const t of tagRows) {
+      (tagsByContact[t.contactId] ||= []).push({ id: t.id, name: t.name, color: t.color });
+    }
+  }
+
+  return {
+    contacts: rows.map(r => ({ ...r, tags: tagsByContact[r.id] ?? [] })),
+    total: totalRow[0]?.count ?? 0,
+  };
+}
