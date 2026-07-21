@@ -4,7 +4,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { notifyOwner } from "./_core/notification";
 import { invokeLLM } from "./_core/llm";
-import { sendCampaign as sendCampaignPipeline } from "./emailSender";
+import { sendCampaign as sendCampaignPipeline, sendTestEmail } from "./emailSender";
 import { createHeartbeatJob } from "./_core/heartbeat";
 import { verifyDomainDns } from "./dnsVerifier";
 import { parse as parseCookie } from "cookie";
@@ -454,6 +454,50 @@ export const appRouter = router({
       const { orgId, limit, offset, ...filters } = input;
       return db.getContactsAdvanced(orgId, filters, limit, offset);
     }),
+
+    bulkAddTag: protectedProcedure.input(z.object({
+      orgId: z.number(),
+      contactIds: z.array(z.number()).min(1).max(1000),
+      tagId: z.number(),
+    })).mutation(async ({ ctx, input }) => {
+      const org = await getUserOrg(ctx.user.id, input.orgId);
+      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
+      return db.bulkAddTag(input.orgId, input.contactIds, input.tagId);
+    }),
+
+    bulkAddToList: protectedProcedure.input(z.object({
+      orgId: z.number(),
+      contactIds: z.array(z.number()).min(1).max(1000),
+      listId: z.number(),
+    })).mutation(async ({ ctx, input }) => {
+      const org = await getUserOrg(ctx.user.id, input.orgId);
+      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
+      return db.bulkAddToList(input.orgId, input.contactIds, input.listId);
+    }),
+
+    bulkDelete: protectedProcedure.input(z.object({
+      orgId: z.number(),
+      contactIds: z.array(z.number()).min(1).max(1000),
+    })).mutation(async ({ ctx, input }) => {
+      const org = await getUserOrg(ctx.user.id, input.orgId);
+      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
+      return db.bulkDeleteContacts(input.orgId, input.contactIds);
+    }),
+
+    exportCsv: protectedProcedure.input(z.object({
+      orgId: z.number(),
+      search: z.string().optional(),
+      tagIds: z.array(z.number()).optional(),
+      listId: z.number().optional(),
+      status: z.enum(['subscribed', 'unsubscribed', 'bounced', 'complained']).optional(),
+      engagement: z.enum(['opened', 'clicked', 'no_engagement']).optional(),
+    })).mutation(async ({ ctx, input }) => {
+      const org = await getUserOrg(ctx.user.id, input.orgId);
+      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
+      const { orgId, ...filters } = input;
+      const csv = await db.exportContactsCsv(orgId, filters);
+      return { csv, filename: `contatos-${new Date().toISOString().slice(0, 10)}.csv` };
+    }),
   }),
 
   // ─────────────────────────────────────────────
@@ -861,6 +905,24 @@ export const appRouter = router({
         winner = rateA > rateB ? 'a' : rateB > rateA ? 'b' : 'tie';
       }
       return { ...results, criteria, rateA, rateB, winner };
+    }),
+
+    sendTest: protectedProcedure.input(z.object({
+      orgId: z.number(),
+      id: z.number(),
+      to: z.string().email(),
+      variant: z.enum(['a', 'b']).default('a'),
+    })).mutation(async ({ ctx, input }) => {
+      const org = await getUserOrg(ctx.user.id, input.orgId);
+      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
+      const campaign = await db.getCampaignById(input.orgId, input.id);
+      if (!campaign) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (!campaign.subject) throw new TRPCError({ code: 'BAD_REQUEST', message: 'A campanha precisa de um assunto para enviar o teste' });
+      const result = await sendTestEmail(campaign, input.to, input.variant);
+      if (!result.delivered) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: result.error || 'Falha ao enviar e-mail de teste' });
+      }
+      return { delivered: true, sandbox: result.sandbox };
     }),
 
     duplicate: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).mutation(async ({ ctx, input }) => {

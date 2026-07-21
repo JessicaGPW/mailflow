@@ -10,7 +10,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmailBuilder, compileToEmailHtml, compileToPlainText, type EmailBlock } from "@/components/EmailBuilder";
 import { SubjectSuggestDialog, ContentOptimizeDialog } from "@/components/AiAssistantPanel";
 import { TemplateGalleryDialog } from "@/components/EmailTemplateGallery";
-import { ArrowLeft, Save, Send, Sparkles, Wand2, FlaskConical, LayoutTemplate, Code, LayoutGrid } from "lucide-react";
+import { ArrowLeft, Save, Send, Sparkles, Wand2, FlaskConical, LayoutTemplate, Code, LayoutGrid, MailCheck } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { Link, useParams } from "wouter";
 import { useState, useCallback, useEffect } from "react";
 import { toast } from "sonner";
@@ -54,6 +56,15 @@ export default function CampaignEditor() {
   const [showSubjectAiB, setShowSubjectAiB] = useState(false);
   const [showOptimizeAi, setShowOptimizeAi] = useState(false);
   const [showGallery, setShowGallery] = useState(false);
+  const [showTestDialog, setShowTestDialog] = useState(false);
+  const { user } = useAuth();
+  const [testEmail, setTestEmail] = useState("");
+  const [testVariant, setTestVariant] = useState<"a" | "b">("a");
+
+  useEffect(() => {
+    if (user?.email && !testEmail) setTestEmail(user.email);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.email]);
 
   useEffect(() => {
     if (existingCampaign) {
@@ -95,6 +106,15 @@ export default function CampaignEditor() {
   const updateMutation = trpc.campaigns.update.useMutation({
     onSuccess: () => { toast.success("Campanha atualizada"); utils.campaigns.list.invalidate(); utils.campaigns.byId.invalidate(); },
     onError: (e) => toast.error("Erro: " + e.message),
+  });
+  const sendTestMutation = trpc.campaigns.sendTest.useMutation({
+    onSuccess: (r) => {
+      toast.success(r.sandbox
+        ? "E-mail de teste processado em modo sandbox (configure um provedor SMTP para envio real)"
+        : "E-mail de teste enviado! Verifique sua caixa de entrada.");
+      setShowTestDialog(false);
+    },
+    onError: (e) => toast.error("Erro no teste: " + e.message),
   });
   const sendMutation = trpc.campaigns.send.useMutation({
     onSuccess: (data) => {
@@ -384,7 +404,13 @@ export default function CampaignEditor() {
         </Card>
 
         {/* Actions */}
-        <div className="flex justify-end gap-3">
+        <div className="flex justify-end gap-3 flex-wrap">
+          {editId && (
+            <Button variant="outline" onClick={() => setShowTestDialog(true)}>
+              <MailCheck className="mr-2 h-4 w-4" />
+              Enviar teste
+            </Button>
+          )}
           <Button variant="outline" onClick={handleSave} disabled={createMutation.isPending || updateMutation.isPending}>
             <Save className="mr-2 h-4 w-4" />
             {editId ? "Salvar alterações" : "Salvar rascunho"}
@@ -397,6 +423,44 @@ export default function CampaignEditor() {
           )}
         </div>
       </div>
+
+      {/* Test email dialog */}
+      <Dialog open={showTestDialog} onOpenChange={setShowTestDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Enviar e-mail de teste</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              O e-mail será enviado com o assunto prefixado com [TESTE], sem gerar métricas nem registros de campanha. Salve as alterações antes de testar.
+            </p>
+            <div className="space-y-1.5">
+              <Label>Destinatário</Label>
+              <Input type="email" value={testEmail} onChange={e => setTestEmail(e.target.value)} placeholder="voce@empresa.com" />
+            </div>
+            {form.isAbTest && (
+              <div className="space-y-1.5">
+                <Label>Variante</Label>
+                <div className="flex gap-2">
+                  <Button type="button" size="sm" variant={testVariant === "a" ? "default" : "outline"} onClick={() => setTestVariant("a")}>Variante A</Button>
+                  <Button type="button" size="sm" variant={testVariant === "b" ? "default" : "outline"} onClick={() => setTestVariant("b")}>Variante B</Button>
+                </div>
+              </div>
+            )}
+            <Button
+              className="w-full"
+              disabled={sendTestMutation.isPending || !testEmail || !editId}
+              onClick={() => {
+                if (!orgId || !editId) return;
+                sendTestMutation.mutate({ orgId, id: editId, to: testEmail, variant: testVariant });
+              }}
+            >
+              <MailCheck className="mr-2 h-4 w-4" />
+              {sendTestMutation.isPending ? "Enviando..." : "Enviar teste"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Template gallery */}
       <TemplateGalleryDialog

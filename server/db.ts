@@ -1115,3 +1115,95 @@ export async function getContactsAdvanced(orgId: number, filters: ContactAdvance
     total: totalRow[0]?.count ?? 0,
   };
 }
+
+// ─────────────────────────────────────────────
+// Bulk actions on contacts
+// ─────────────────────────────────────────────
+async function filterOrgContactIds(orgId: number, contactIds: number[]): Promise<number[]> {
+  const db = await getDb();
+  if (!db || contactIds.length === 0) return [];
+  const rows = await db
+    .select({ id: contacts.id })
+    .from(contacts)
+    .where(and(eq(contacts.orgId, orgId), inArray(contacts.id, contactIds)));
+  return rows.map(r => r.id);
+}
+
+export async function bulkAddTag(orgId: number, contactIds: number[], tagId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const validIds = await filterOrgContactIds(orgId, contactIds);
+  if (validIds.length === 0) return { affected: 0 };
+  const existing = await db
+    .select({ contactId: contactTagAssociations.contactId })
+    .from(contactTagAssociations)
+    .where(and(eq(contactTagAssociations.tagId, tagId), inArray(contactTagAssociations.contactId, validIds)));
+  const existingSet = new Set(existing.map(e => e.contactId));
+  const toInsert = validIds.filter(id => !existingSet.has(id));
+  if (toInsert.length > 0) {
+    await db.insert(contactTagAssociations).values(toInsert.map(contactId => ({ contactId, tagId })));
+  }
+  return { affected: toInsert.length };
+}
+
+export async function bulkAddToList(orgId: number, contactIds: number[], listId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const validIds = await filterOrgContactIds(orgId, contactIds);
+  if (validIds.length === 0) return { affected: 0 };
+  const existing = await db
+    .select({ contactId: contactListMemberships.contactId })
+    .from(contactListMemberships)
+    .where(and(eq(contactListMemberships.listId, listId), inArray(contactListMemberships.contactId, validIds)));
+  const existingSet = new Set(existing.map(e => e.contactId));
+  const toInsert = validIds.filter(id => !existingSet.has(id));
+  if (toInsert.length > 0) {
+    await db.insert(contactListMemberships).values(toInsert.map(contactId => ({ contactId, listId })));
+  }
+  return { affected: toInsert.length };
+}
+
+export async function bulkDeleteContacts(orgId: number, contactIds: number[]) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const validIds = await filterOrgContactIds(orgId, contactIds);
+  if (validIds.length === 0) return { affected: 0 };
+  await db.delete(contactListMemberships).where(inArray(contactListMemberships.contactId, validIds));
+  await db.delete(contactTagAssociations).where(inArray(contactTagAssociations.contactId, validIds));
+  await db.delete(customFieldValues).where(inArray(customFieldValues.contactId, validIds));
+  await db.delete(contacts).where(and(eq(contacts.orgId, orgId), inArray(contacts.id, validIds)));
+  return { affected: validIds.length };
+}
+
+// ─────────────────────────────────────────────
+// CSV export of filtered contacts
+// ─────────────────────────────────────────────
+export async function exportContactsCsv(orgId: number, filters: ContactAdvancedFilters): Promise<string> {
+  // Reuse advanced filtering, paging through all results
+  const pageSize = 500;
+  const header = ["email", "firstName", "lastName", "phone", "status", "source", "tags", "createdAt"];
+  const lines: string[] = [header.join(",")];
+  const escape = (v: unknown) => {
+    const s = v === null || v === undefined ? "" : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  let offset = 0;
+  for (;;) {
+    const page = await getContactsAdvanced(orgId, filters, pageSize, offset);
+    for (const c of page.contacts) {
+      lines.push([
+        escape(c.email),
+        escape(c.firstName),
+        escape(c.lastName),
+        escape(c.phone),
+        escape(c.status),
+        escape(c.source),
+        escape(c.tags.map(t => t.name).join("; ")),
+        escape(c.createdAt instanceof Date ? c.createdAt.toISOString() : c.createdAt),
+      ].join(","));
+    }
+    offset += pageSize;
+    if (page.contacts.length < pageSize || offset >= page.total) break;
+  }
+  return lines.join("\n");
+}

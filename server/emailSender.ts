@@ -273,3 +273,37 @@ export async function sendWinnerToRemainder(campaign: Campaign): Promise<{
     firstError: stats.firstError,
   };
 }
+
+/**
+ * Send a single test email of a campaign to a given address.
+ * Uses the same rendering pipeline (variant A or B) but does NOT inject
+ * tracking, does not create send records and does not touch metrics —
+ * the subject is prefixed with [TESTE] so it is unmistakable in the inbox.
+ */
+export async function sendTestEmail(
+  campaign: Campaign,
+  to: string,
+  variant: "a" | "b" = "a",
+): Promise<{ delivered: boolean; sandbox: boolean; error?: string }> {
+  const smtpConfig = await db.getDefaultSmtpConfig(campaign.orgId);
+  const rendered = renderVariant(campaign, variant);
+  const fromName = campaign.fromName || "MailFlow";
+  const fromEmail = campaign.fromEmail || smtpConfig?.fromEmail || "noreply@mailflow.app";
+
+  const banner = `<div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;padding:10px 16px;margin-bottom:16px;font-family:Arial,sans-serif;font-size:12px;color:#4338ca;">E-mail de teste — este envio não gera métricas nem registros de campanha.</div>`;
+  const html = rendered.html.includes("<body")
+    ? rendered.html.replace(/(<body[^>]*>)/, `$1${banner}`)
+    : banner + rendered.html;
+
+  const result = await dispatchEmail(smtpConfig, {
+    to,
+    subject: `[TESTE] ${rendered.subject}`,
+    html,
+    text: rendered.text,
+    fromName,
+    fromEmail,
+    replyTo: campaign.replyTo || undefined,
+  });
+
+  return { delivered: result.delivered, sandbox: result.sandbox, error: result.error };
+}

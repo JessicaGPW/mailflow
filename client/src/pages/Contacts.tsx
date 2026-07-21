@@ -9,7 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Users, Plus, Upload, Search, Trash2, Tag, X, SlidersHorizontal } from "lucide-react";
+import { Users, Plus, Upload, Search, Trash2, Tag, X, SlidersHorizontal, Download, ListChecks } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useState, useMemo, useCallback } from "react";
 import { toast } from "sonner";
 
@@ -67,6 +68,31 @@ export default function Contacts() {
     onSuccess: () => { utils.contacts.listAdvanced.invalidate(); },
     onError: (e) => { toast.error("Erro: " + e.message); },
   });
+  const bulkAddTagMutation = trpc.contacts.bulkAddTag.useMutation({
+    onSuccess: (r) => { toast.success(`Tag aplicada a ${r.affected} contato(s)`); utils.contacts.listAdvanced.invalidate(); setSelectedIds(new Set()); },
+    onError: (e) => { toast.error("Erro: " + e.message); },
+  });
+  const bulkAddToListMutation = trpc.contacts.bulkAddToList.useMutation({
+    onSuccess: (r) => { toast.success(`${r.affected} contato(s) adicionados à lista`); utils.contacts.listAdvanced.invalidate(); setSelectedIds(new Set()); },
+    onError: (e) => { toast.error("Erro: " + e.message); },
+  });
+  const bulkDeleteMutation = trpc.contacts.bulkDelete.useMutation({
+    onSuccess: (r) => { toast.success(`${r.affected} contato(s) excluídos`); utils.contacts.listAdvanced.invalidate(); setSelectedIds(new Set()); },
+    onError: (e) => { toast.error("Erro: " + e.message); },
+  });
+  const exportCsvMutation = trpc.contacts.exportCsv.useMutation({
+    onSuccess: (data) => {
+      const blob = new Blob(["\uFEFF" + data.csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = data.filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("CSV exportado com sucesso");
+    },
+    onError: (e) => { toast.error("Erro ao exportar: " + e.message); },
+  });
   const removeTagMutation = trpc.tags.removeFromContact.useMutation({
     onSuccess: () => { utils.contacts.listAdvanced.invalidate(); },
   });
@@ -79,6 +105,7 @@ export default function Contacts() {
   const [importListId, setImportListId] = useState<number | undefined>();
   const [newTagName, setNewTagName] = useState("");
   const [newTagColor, setNewTagColor] = useState(TAG_COLORS[0]);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   const activeFilterCount = (filterTagIds.length > 0 ? 1 : 0) + (filterListId ? 1 : 0) + (filterStatus ? 1 : 0) + (filterEngagement ? 1 : 0);
 
@@ -139,6 +166,41 @@ export default function Contacts() {
     setPage(0);
   }, []);
 
+  const toggleSelect = useCallback((id: number) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const pageIds = useMemo(() => (contacts ?? []).map(c => c.id), [contacts]);
+  const allPageSelected = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id));
+
+  const toggleSelectAll = useCallback(() => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (pageIds.every(id => next.has(id))) {
+        pageIds.forEach(id => next.delete(id));
+      } else {
+        pageIds.forEach(id => next.add(id));
+      }
+      return next;
+    });
+  }, [pageIds]);
+
+  const handleExportCsv = useCallback(() => {
+    if (!orgId) return;
+    exportCsvMutation.mutate({
+      orgId,
+      search: search || undefined,
+      tagIds: filterTagIds.length > 0 ? filterTagIds : undefined,
+      listId: filterListId,
+      status: filterStatus,
+      engagement: filterEngagement,
+    });
+  }, [orgId, search, filterTagIds, filterListId, filterStatus, filterEngagement, exportCsvMutation]);
+
   return (
     <div className="p-6 md:p-8 max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
@@ -147,6 +209,10 @@ export default function Contacts() {
           <p className="text-sm text-muted-foreground mt-1">{total.toLocaleString("pt-BR")} contatos {activeFilterCount > 0 ? "encontrados" : "no total"}</p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          <Button variant="outline" className="shadow-premium" onClick={handleExportCsv} disabled={exportCsvMutation.isPending}>
+            <Download className="mr-2 h-4 w-4" />
+            {exportCsvMutation.isPending ? "Exportando..." : "Exportar CSV"}
+          </Button>
           <Dialog open={showTagManager} onOpenChange={setShowTagManager}>
             <DialogTrigger asChild>
               <Button variant="outline" className="shadow-premium">
@@ -344,12 +410,90 @@ export default function Contacts() {
         </div>
       )}
 
+      {/* Bulk actions bar */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-2 mb-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-2.5 flex-wrap">
+          <span className="text-sm font-medium text-primary">{selectedIds.size} selecionado(s)</span>
+          <div className="flex gap-2 ml-auto flex-wrap">
+            {allTags && allTags.length > 0 && (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <Tag className="mr-1.5 h-3.5 w-3.5" />
+                    Aplicar tag
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-48 p-2" align="end">
+                  <div className="space-y-0.5">
+                    {allTags.map(t => (
+                      <button
+                        key={t.id}
+                        onClick={() => bulkAddTagMutation.mutate({ orgId: orgId!, contactIds: Array.from(selectedIds), tagId: t.id })}
+                        disabled={bulkAddTagMutation.isPending}
+                        className="w-full flex items-center gap-2 text-sm px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-left disabled:opacity-50"
+                      >
+                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: t.color || "#888" }} />
+                        {t.name}
+                      </button>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            )}
+            {lists && lists.length > 0 && (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <ListChecks className="mr-1.5 h-3.5 w-3.5" />
+                    Adicionar à lista
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-52 p-2" align="end">
+                  <div className="space-y-0.5">
+                    {lists.map(l => (
+                      <button
+                        key={l.id}
+                        onClick={() => bulkAddToListMutation.mutate({ orgId: orgId!, contactIds: Array.from(selectedIds), listId: l.id })}
+                        disabled={bulkAddToListMutation.isPending}
+                        className="w-full text-sm px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-left disabled:opacity-50 truncate"
+                      >
+                        {l.name}
+                      </button>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-destructive hover:text-destructive"
+              onClick={() => {
+                if (window.confirm(`Excluir ${selectedIds.size} contato(s)? Esta ação não pode ser desfeita.`)) {
+                  bulkDeleteMutation.mutate({ orgId: orgId!, contactIds: Array.from(selectedIds) });
+                }
+              }}
+              disabled={bulkDeleteMutation.isPending}
+            >
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+              {bulkDeleteMutation.isPending ? "Excluindo..." : "Excluir"}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Table */}
       <Card className="shadow-premium border-border/50 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="border-b border-border/50 bg-muted/30">
+                <th className="w-10 px-4 py-3">
+                  <Checkbox checked={allPageSelected} onCheckedChange={toggleSelectAll} aria-label="Selecionar todos" />
+                </th>
                 <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3">Email</th>
                 <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3">Nome</th>
                 <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3">Tags</th>
@@ -359,10 +503,13 @@ export default function Contacts() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={5} className="text-center py-12 text-muted-foreground">Carregando...</td></tr>
+                <tr><td colSpan={6} className="text-center py-12 text-muted-foreground">Carregando...</td></tr>
               ) : contacts && contacts.length > 0 ? (
                 contacts.map(c => (
-                  <tr key={c.id} className="border-b border-border/30 hover:bg-muted/20 transition-colors">
+                  <tr key={c.id} className={`border-b border-border/30 hover:bg-muted/20 transition-colors ${selectedIds.has(c.id) ? "bg-primary/5" : ""}`}>
+                    <td className="px-4 py-3">
+                      <Checkbox checked={selectedIds.has(c.id)} onCheckedChange={() => toggleSelect(c.id)} aria-label={`Selecionar ${c.email}`} />
+                    </td>
                     <td className="px-4 py-3 text-sm font-medium">{c.email}</td>
                     <td className="px-4 py-3 text-sm text-muted-foreground">{[c.firstName, c.lastName].filter(Boolean).join(" ") || "—"}</td>
                     <td className="px-4 py-3">
@@ -425,7 +572,7 @@ export default function Contacts() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={5} className="text-center py-16">
+                  <td colSpan={6} className="text-center py-16">
                     <Users className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
                     <p className="text-muted-foreground font-medium">Nenhum contato encontrado</p>
                     <p className="text-sm text-muted-foreground/70 mt-1">

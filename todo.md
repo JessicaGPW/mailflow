@@ -86,3 +86,14 @@
 - [x] Testes vitest para novas funcionalidades — 37 testes passando
 - [x] Atualizar skill email-marketing-saas-builder com novos padrões (rodada 4)
 - [x] Checkpoint final da rodada 4
+
+## Novas Funcionalidades (Rodada 5)
+- [ ] Ações em massa: procedures backend (bulk aplicar tag, bulk adicionar à lista, bulk excluir)
+- [ ] Ações em massa: checkboxes na tabela de contatos com barra de ações flutuante
+- [ ] E-mail de teste: procedure backend sendTest usando pipeline de envio existente
+- [ ] E-mail de teste: botão "Enviar teste" no editor de campanhas com input de destinatário
+- [ ] Exportar CSV: procedure backend exportando contatos com filtros ativos aplicados
+- [ ] Exportar CSV: botão na página de contatos que baixa o arquivo com os filtros atuais
+- [ ] Testes vitest para novas funcionalidades
+- [ ] Atualizar skill email-marketing-saas-builder com novos padrões (rodada 5)
+- [ ] Checkpoint final da rodada 5
