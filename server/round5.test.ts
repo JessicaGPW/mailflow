@@ -66,6 +66,21 @@ describe("contacts bulk actions", () => {
     expect(second.affected).toBe(0);
   });
 
+  it("rejects tagId and listId belonging to another organization", async () => {
+    const otherOrg = await caller.org.create({ name: `Org R5 Other ${Date.now()}` });
+    const otherCaller = caller; // same user owns both orgs; ownership check is by orgId
+    const foreignTag = await otherCaller.tags.create({ orgId: otherOrg!.id, name: `foreign-${Date.now()}` });
+    const foreignList = await otherCaller.lists.create({ orgId: otherOrg!.id, name: `Foreign ${Date.now()}` });
+    const c = await caller.contacts.create({ orgId, email: `r5x-${Date.now()}@t.com` });
+
+    await expect(
+      caller.contacts.bulkAddTag({ orgId, contactIds: [c!.id], tagId: foreignTag!.id }),
+    ).rejects.toThrow();
+    await expect(
+      caller.contacts.bulkAddToList({ orgId, contactIds: [c!.id], listId: foreignList!.id }),
+    ).rejects.toThrow();
+  });
+
   it("bulkDelete removes only contacts belonging to the org", async () => {
     const c1 = await caller.contacts.create({ orgId, email: `r5e-${Date.now()}@t.com` });
     const result = await caller.contacts.bulkDelete({ orgId, contactIds: [c1!.id, 99999999] });

@@ -1132,6 +1132,9 @@ async function filterOrgContactIds(orgId: number, contactIds: number[]): Promise
 export async function bulkAddTag(orgId: number, contactIds: number[], tagId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  // Multi-tenant guard: tag must belong to the same organization
+  const tagRow = await db.select({ id: contactTags.id }).from(contactTags).where(and(eq(contactTags.id, tagId), eq(contactTags.orgId, orgId))).limit(1);
+  if (tagRow.length === 0) throw new Error("Tag não encontrada nesta organização");
   const validIds = await filterOrgContactIds(orgId, contactIds);
   if (validIds.length === 0) return { affected: 0 };
   const existing = await db
@@ -1149,6 +1152,9 @@ export async function bulkAddTag(orgId: number, contactIds: number[], tagId: num
 export async function bulkAddToList(orgId: number, contactIds: number[], listId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  // Multi-tenant guard: list must belong to the same organization
+  const listRow = await db.select({ id: contactLists.id }).from(contactLists).where(and(eq(contactLists.id, listId), eq(contactLists.orgId, orgId))).limit(1);
+  if (listRow.length === 0) throw new Error("Lista não encontrada nesta organização");
   const validIds = await filterOrgContactIds(orgId, contactIds);
   if (validIds.length === 0) return { affected: 0 };
   const existing = await db
