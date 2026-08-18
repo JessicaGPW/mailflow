@@ -1,0 +1,1 @@
+ALTER TABLE `campaigns` ADD `sendScheduleCronTaskUid` varchar(65);

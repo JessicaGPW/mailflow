@@ -1,8 +1,70 @@
 import type { Request, Response } from "express";
 import { sdk } from "./_core/sdk";
 import * as db from "./db";
-import { sendWinnerToRemainder } from "./emailSender";
+import { sendWinnerToRemainder, sendCampaign } from "./emailSender";
 import { notifyOwner } from "./_core/notification";
+
+/**
+ * Heartbeat callback: scheduled campaign send.
+ *
+ * Fires once at the user-chosen scheduledAt. Idempotent: only dispatches
+ * campaigns still in the `scheduled` status; any other status is a no-op.
+ */
+export async function scheduledSendHandler(req: Request, res: Response) {
+  try {
+    const user = await sdk.authenticateRequest(req);
+    if (!user.isCron || !user.taskUid) {
+      return res.status(403).json({ error: "cron-only" });
+    }
+
+    const campaign = await db.getCampaignBySendCronTaskUid(user.taskUid);
+    if (!campaign) {
+      // Orphan cron — return 2xx so the platform stops retrying
+      return res.json({ ok: true, skipped: "orphan" });
+    }
+
+    if (campaign.status !== "scheduled") {
+      return res.json({ ok: true, skipped: "not-scheduled", status: campaign.status });
+    }
+
+    // Mark as sending first (idempotency barrier against concurrent retries)
+    await db.updateCampaign(campaign.orgId, campaign.id, { status: "sending" });
+
+    const result = await sendCampaign(campaign);
+    const failedAll = result.totalRecipients > 0 && result.sent === 0;
+
+    await db.updateCampaign(campaign.orgId, campaign.id, {
+      status: failedAll ? "failed" : "sent",
+      sentAt: new Date(),
+      totalRecipients: result.totalRecipients,
+      totalSent: result.sent,
+      totalDelivered: result.sent,
+    });
+
+    if (result.failed > 0 || failedAll) {
+      void notifyOwner({
+        title: "Colabix: falha em envio agendado",
+        content: `Campanha agendada "${campaign.name}" (org ${campaign.orgId}): ${result.failed} de ${result.totalRecipients} envios falharam.${result.firstError ? ` Primeiro erro: ${result.firstError}` : ""}`,
+      }).catch(() => {});
+    }
+
+    return res.json({
+      ok: true,
+      sent: result.sent,
+      failed: result.failed,
+      totalRecipients: result.totalRecipients,
+      sandbox: result.sandbox,
+    });
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error("Unknown error");
+    return res.status(500).json({
+      error: err.message,
+      stack: err.stack,
+      context: { url: req.originalUrl },
+      timestamp: new Date().toISOString(),
+    });
+  }
+}
 
 /**
  * Heartbeat callback: A/B auto-winner rollout.
@@ -42,7 +104,7 @@ export async function abWinnerHandler(req: Request, res: Response) {
 
     if (result.failed > 0) {
       void notifyOwner({
-        title: "MailFlow: falhas no envio da variante vencedora",
+        title: "Colabix: falhas no envio da variante vencedora",
         content: `Campanha "${campaign.name}" (org ${campaign.orgId}): ${result.failed} de ${result.remaining} envios da vencedora falharam.${result.firstError ? ` Primeiro erro: ${result.firstError}` : ""}`,
       }).catch(() => {});
     }

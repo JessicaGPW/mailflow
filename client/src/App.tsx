@@ -7,6 +7,7 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
 import Contacts from "./pages/Contacts";
+import ContactProfile from "./pages/ContactProfile";
 import Lists from "./pages/Lists";
 import Segments from "./pages/Segments";
 import Campaigns from "./pages/Campaigns";
@@ -31,6 +32,7 @@ function AppRouter() {
           <Switch>
             <Route path="/" component={Dashboard} />
             <Route path="/contacts" component={Contacts} />
+            <Route path="/contacts/:id" component={ContactProfile} />
             <Route path="/lists" component={Lists} />
             <Route path="/segments" component={Segments} />
             <Route path="/campaigns" component={Campaigns} />

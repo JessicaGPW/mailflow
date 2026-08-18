@@ -97,3 +97,18 @@
 - [x] Testes vitest para novas funcionalidades — 45 testes passando
 - [x] Atualizar skill email-marketing-saas-builder com novos padrões (rodada 5)
 - [x] Checkpoint final da rodada 5
+
+## Novas Funcionalidades (Rodada 6)
+- [x] Perfil do contato: helper backend getContactProfile (eventos, envios, listas, tags, campos customizados)
+- [x] Perfil do contato: procedure contacts.profile
+- [x] Perfil do contato: página com timeline de engajamento, campanhas recebidas, listas e tags
+- [x] Perfil do contato: link na tabela de contatos e rota registrada
+- [x] Importação CSV: upload real de arquivo com parser RFC-4180 no cliente
+- [x] Importação CSV: etapa visual de mapeamento de colunas com pré-visualização
+- [x] Agendamento: coluna sendScheduleCronTaskUid + migration
+- [x] Agendamento: handler /api/scheduled/sendCampaign idempotente
+- [x] Agendamento: procedures schedule (cria/atualiza cron) e unschedule
+- [x] Agendamento: UI com data/hora, banner de agendado e cancelamento
+- [x] Rebranding: substituir MailFlow por Colabix na interface
+- [x] Testes vitest para novas funcionalidades — 57 testes passando
+- [x] Checkpoint final da rodada 6

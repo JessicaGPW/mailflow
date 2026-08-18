@@ -79,7 +79,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               Acesse sua conta
             </h1>
             <p className="text-sm text-muted-foreground text-center max-w-sm">
-              Entre para acessar o painel do MailFlow e gerenciar suas campanhas de e-mail marketing.
+              Entre para acessar o painel do Colabix e gerenciar suas campanhas de e-mail marketing.
             </p>
           </div>
           <Button
@@ -174,7 +174,7 @@ function AppLayoutContent({ children, setSidebarWidth }: AppLayoutContentProps) 
           <Mail className="h-5 w-5 text-primary-foreground" />
         </div>
         <div className="flex-1 min-w-0">
-          <span className="font-semibold tracking-tight text-sidebar-foreground text-[15px]">MailFlow</span>
+          <span className="font-semibold tracking-tight text-sidebar-foreground text-[15px]">Colabix</span>
         </div>
         {isMobile && (
           <button
@@ -339,7 +339,7 @@ function AppLayoutContent({ children, setSidebarWidth }: AppLayoutContentProps) 
             >
               <PanelLeft className="h-4 w-4" />
             </button>
-            <span className="text-sm font-medium">{activeMenuItem?.label ?? "MailFlow"}</span>
+            <span className="text-sm font-medium">{activeMenuItem?.label ?? "Colabix"}</span>
             <div className="w-9" />
           </div>
         )}

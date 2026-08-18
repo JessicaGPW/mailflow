@@ -6,6 +6,7 @@ import { notifyOwner } from "./_core/notification";
 import { invokeLLM } from "./_core/llm";
 import { sendCampaign as sendCampaignPipeline, sendTestEmail } from "./emailSender";
 import { createHeartbeatJob } from "./_core/heartbeat";
+import { updateHeartbeatJob, deleteHeartbeatJob } from "./_core/heartbeat";
 import { verifyDomainDns } from "./dnsVerifier";
 import { parse as parseCookie } from "cookie";
 import { z } from "zod";
@@ -25,7 +26,7 @@ async function getOrCreateUserOrg(userId: number, userName: string) {
   // Notify platform owner of new org signup
   try {
     await notifyOwner({
-      title: "Nova organização cadastrada no MailFlow",
+      title: "Nova organização cadastrada no Colabix",
       content: `A organização "${org!.name}" foi criada por ${userName || 'um usuário'} (ID: ${userId}).`,
     });
   } catch (e) { /* non-blocking */ }
@@ -316,7 +317,7 @@ export const appRouter = router({
       const org = await db.createOrg(input.name, slug, ctx.user.id);
       try {
         await notifyOwner({
-          title: "Nova organização cadastrada no MailFlow",
+          title: "Nova organização cadastrada no Colabix",
           content: `A organização "${input.name}" foi criada por ${ctx.user.name || ctx.user.email} (ID: ${ctx.user.id}).`,
         });
       } catch (e) { /* non-blocking */ }
@@ -453,6 +454,14 @@ export const appRouter = router({
       if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
       const { orgId, limit, offset, ...filters } = input;
       return db.getContactsAdvanced(orgId, filters, limit, offset);
+    }),
+
+    profile: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).query(async ({ ctx, input }) => {
+      const org = await getUserOrg(ctx.user.id, input.orgId);
+      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
+      const profile = await db.getContactProfile(input.orgId, input.id);
+      if (!profile) throw new TRPCError({ code: 'NOT_FOUND', message: 'Contato não encontrado' });
+      return profile;
     }),
 
     bulkAddTag: protectedProcedure.input(z.object({
@@ -805,7 +814,69 @@ export const appRouter = router({
     })).mutation(async ({ ctx, input }) => {
       const org = await getUserOrg(ctx.user.id, input.orgId);
       if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      return db.updateCampaign(input.orgId, input.id, { status: 'scheduled', scheduledAt: input.scheduledAt });
+      const campaign = await db.getCampaignById(input.orgId, input.id);
+      if (!campaign) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (campaign.status === 'sent' || campaign.status === 'sending') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Esta campanha já foi enviada.' });
+      }
+      if (campaign.isAbTest && !campaign.abSubjectB) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Teste A/B ativado: defina o assunto da variante B antes de agendar.' });
+      }
+      const runAt = input.scheduledAt;
+      if (runAt.getTime() < Date.now() + 60_000) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Escolha uma data/hora pelo menos 1 minuto no futuro.' });
+      }
+
+      const sessionToken = parseCookie(ctx.req.headers.cookie ?? '')[COOKIE_NAME] ?? '';
+      // One-shot semantics: the cron fires at that specific minute; the handler
+      // is idempotent (only dispatches while status is `scheduled`).
+      const cron = `0 ${runAt.getUTCMinutes()} ${runAt.getUTCHours()} ${runAt.getUTCDate()} ${runAt.getUTCMonth() + 1} *`;
+
+      // Re-scheduling: update the existing cron instead of creating a duplicate
+      if (campaign.sendScheduleCronTaskUid) {
+        await updateHeartbeatJob(campaign.sendScheduleCronTaskUid, { cron, enable: true }, sessionToken);
+        return db.updateCampaign(input.orgId, input.id, { status: 'scheduled', scheduledAt: runAt });
+      }
+
+      const job = await createHeartbeatJob({
+        name: `send-campaign-${campaign.id}`,
+        cron,
+        path: '/api/scheduled/sendCampaign',
+        payload: { campaignId: campaign.id },
+        description: `Envio agendado da campanha "${campaign.name}"`,
+      }, sessionToken);
+
+      return db.updateCampaign(input.orgId, input.id, {
+        status: 'scheduled',
+        scheduledAt: runAt,
+        sendScheduleCronTaskUid: job.taskUid,
+      });
+    }),
+
+    unschedule: protectedProcedure.input(z.object({
+      orgId: z.number(),
+      id: z.number(),
+    })).mutation(async ({ ctx, input }) => {
+      const org = await getUserOrg(ctx.user.id, input.orgId);
+      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
+      const campaign = await db.getCampaignById(input.orgId, input.id);
+      if (!campaign) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (campaign.status !== 'scheduled') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Esta campanha não está agendada.' });
+      }
+      if (campaign.sendScheduleCronTaskUid) {
+        const sessionToken = parseCookie(ctx.req.headers.cookie ?? '')[COOKIE_NAME] ?? '';
+        try {
+          await deleteHeartbeatJob(campaign.sendScheduleCronTaskUid, sessionToken);
+        } catch {
+          // Cron may already be gone — proceed with local cleanup
+        }
+      }
+      return db.updateCampaign(input.orgId, input.id, {
+        status: 'draft',
+        scheduledAt: null,
+        sendScheduleCronTaskUid: null,
+      });
     }),
 
     send: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).mutation(async ({ ctx, input }) => {
@@ -835,7 +906,7 @@ export const appRouter = router({
       // Notify platform owner on dispatch failure (critical event)
       if (result.failed > 0) {
         void notifyOwner({
-          title: 'MailFlow: falha no disparo de campanha',
+          title: 'Colabix: falha no disparo de campanha',
           content: `Campanha "${campaign.name}" (org ${input.orgId}): ${result.failed} de ${result.totalRecipients} envios falharam.${result.firstError ? ` Primeiro erro: ${result.firstError}` : ''}`,
         }).catch(() => {});
       }
@@ -863,7 +934,7 @@ export const appRouter = router({
         } catch (e) {
           winnerScheduleError = e instanceof Error ? e.message : 'Falha ao agendar envio da vencedora';
           void notifyOwner({
-            title: 'MailFlow: falha ao agendar envio da variante vencedora',
+            title: 'Colabix: falha ao agendar envio da variante vencedora',
             content: `Campanha "${campaign.name}" (org ${input.orgId}): ${winnerScheduleError}`,
           }).catch(() => {});
         }

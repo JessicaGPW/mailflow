@@ -248,6 +248,8 @@ export const campaigns = mysqlTable("campaigns", {
   abWinnerVariant: mysqlEnum("abWinnerVariant", ["a", "b"]),
   abWinnerSentAt: datetime("abWinnerSentAt"),
   scheduleCronTaskUid: varchar("scheduleCronTaskUid", { length: 65 }),
+  // Scheduled send: Heartbeat cron that fires at scheduledAt to dispatch the campaign
+  sendScheduleCronTaskUid: varchar("sendScheduleCronTaskUid", { length: 65 }),
   createdBy: int("createdBy"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

@@ -11,6 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Users, Plus, Upload, Search, Trash2, Tag, X, SlidersHorizontal, Download, ListChecks } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Link } from "wouter";
+import { CsvImportWizard, type MappedContact } from "@/components/CsvImportWizard";
 import { useState, useMemo, useCallback } from "react";
 import { toast } from "sonner";
 
@@ -101,8 +103,6 @@ export default function Contacts() {
   const [showImport, setShowImport] = useState(false);
   const [showTagManager, setShowTagManager] = useState(false);
   const [newContact, setNewContact] = useState({ email: "", firstName: "", lastName: "", phone: "" });
-  const [csvText, setCsvText] = useState("");
-  const [importListId, setImportListId] = useState<number | undefined>();
   const [newTagName, setNewTagName] = useState("");
   const [newTagColor, setNewTagColor] = useState(TAG_COLORS[0]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -129,22 +129,15 @@ export default function Contacts() {
     });
   }, [orgId, deleteMutation, utils]);
 
-  const handleImport = useCallback(() => {
-    if (!orgId || !csvText.trim()) return;
-    const lines = csvText.trim().split("\n");
-    const parsed = lines.map(line => {
-      const [email, firstName, lastName, phone] = line.split(",").map(s => s?.trim());
-      return { email: email || "", firstName, lastName, phone };
-    }).filter(c => c.email);
-    if (parsed.length === 0) { toast.error("Nenhum contato válido encontrado"); return; }
-    importMutation.mutate({ orgId, contacts: parsed, listId: importListId }, {
+  const handleImport = useCallback((mapped: MappedContact[], listId: number | undefined) => {
+    if (!orgId || mapped.length === 0) return;
+    importMutation.mutate({ orgId, contacts: mapped, listId }, {
       onSuccess: () => {
         utils.contacts.listAdvanced.invalidate();
         setShowImport(false);
-        setCsvText("");
       },
     });
-  }, [orgId, csvText, importListId, importMutation, utils]);
+  }, [orgId, importMutation, utils]);
 
   const handleCreateTag = useCallback(() => {
     if (!orgId || !newTagName.trim()) return;
@@ -259,44 +252,17 @@ export default function Contacts() {
               </div>
             </DialogContent>
           </Dialog>
-          <Dialog open={showImport} onOpenChange={setShowImport}>
-            <DialogTrigger asChild>
-              <Button variant="outline" className="shadow-premium">
-                <Upload className="mr-2 h-4 w-4" />
-                Importar CSV
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-lg">
-              <DialogHeader>
-                <DialogTitle>Importar contatos via CSV</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 py-2">
-                <div className="space-y-2">
-                  <Label>Adicionar à lista (opcional)</Label>
-                  <select
-                    className="w-full rounded-lg border border-input px-3 py-2 text-sm bg-background"
-                    value={importListId ?? ""}
-                    onChange={e => setImportListId(e.target.value ? parseInt(e.target.value) : undefined)}
-                  >
-                    <option value="">Nenhuma lista</option>
-                    {lists?.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Contatos (formato: email, nome, sobrenome, telefone)</Label>
-                  <Textarea
-                    rows={8}
-                    placeholder="joao@exemplo.com, João, Silva, +5511999999999&#10;maria@exemplo.com, Maria, Santos"
-                    value={csvText}
-                    onChange={e => setCsvText(e.target.value)}
-                  />
-                </div>
-                <Button onClick={handleImport} disabled={importMutation.isPending} className="w-full">
-                  {importMutation.isPending ? "Importando..." : `Importar ${csvText.trim().split("\n").filter(l => l.trim()).length} contatos`}
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
+          <Button variant="outline" className="shadow-premium" onClick={() => setShowImport(true)}>
+            <Upload className="mr-2 h-4 w-4" />
+            Importar CSV
+          </Button>
+          <CsvImportWizard
+            open={showImport}
+            onOpenChange={setShowImport}
+            lists={lists}
+            importing={importMutation.isPending}
+            onImport={handleImport}
+          />
           <Dialog open={showAdd} onOpenChange={setShowAdd}>
             <DialogTrigger asChild>
               <Button className="shadow-premium">
@@ -510,7 +476,11 @@ export default function Contacts() {
                     <td className="px-4 py-3">
                       <Checkbox checked={selectedIds.has(c.id)} onCheckedChange={() => toggleSelect(c.id)} aria-label={`Selecionar ${c.email}`} />
                     </td>
-                    <td className="px-4 py-3 text-sm font-medium">{c.email}</td>
+                    <td className="px-4 py-3 text-sm font-medium">
+                      <Link href={`/app/contacts/${c.id}`} className="hover:text-primary hover:underline underline-offset-2 transition-colors">
+                        {c.email}
+                      </Link>
+                    </td>
                     <td className="px-4 py-3 text-sm text-muted-foreground">{[c.firstName, c.lastName].filter(Boolean).join(" ") || "—"}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1 flex-wrap">

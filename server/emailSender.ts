@@ -166,7 +166,7 @@ async function dispatchToRecipients(
   pickVariant: (index: number) => "a" | "b",
 ): Promise<Omit<SendResult, "totalRecipients" | "heldForWinner">> {
   const smtpConfig = await db.getDefaultSmtpConfig(campaign.orgId);
-  const fromName = campaign.fromName || "MailFlow";
+  const fromName = campaign.fromName || "Colabix";
   const fromEmail = campaign.fromEmail || smtpConfig?.fromEmail || "noreply@mailflow.app";
 
   let sent = 0;
@@ -287,7 +287,7 @@ export async function sendTestEmail(
 ): Promise<{ delivered: boolean; sandbox: boolean; error?: string }> {
   const smtpConfig = await db.getDefaultSmtpConfig(campaign.orgId);
   const rendered = renderVariant(campaign, variant);
-  const fromName = campaign.fromName || "MailFlow";
+  const fromName = campaign.fromName || "Colabix";
   const fromEmail = campaign.fromEmail || smtpConfig?.fromEmail || "noreply@mailflow.app";
 
   const banner = `<div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;padding:10px 16px;margin-bottom:16px;font-family:Arial,sans-serif;font-size:12px;color:#4338ca;">E-mail de teste — este envio não gera métricas nem registros de campanha.</div>`;

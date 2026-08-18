@@ -1213,3 +1213,79 @@ export async function exportContactsCsv(orgId: number, filters: ContactAdvancedF
   }
   return lines.join("\n");
 }
+
+// ─────────────────────────────────────────────
+// Contact profile (360º view)
+// ─────────────────────────────────────────────
+export async function getContactProfile(orgId: number, contactId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const contact = await getContactById(orgId, contactId);
+  if (!contact) return undefined;
+
+  const [tags, listRows, sendRows, eventRows, fieldRows] = await Promise.all([
+    getContactTags(contactId),
+    db
+      .select({ list: contactLists, subscribedAt: contactListMemberships.createdAt })
+      .from(contactListMemberships)
+      .innerJoin(contactLists, eq(contactListMemberships.listId, contactLists.id))
+      .where(and(eq(contactListMemberships.contactId, contactId), eq(contactLists.orgId, orgId))),
+    db
+      .select({
+        id: campaignSends.id,
+        campaignId: campaignSends.campaignId,
+        campaignName: campaigns.name,
+        subject: campaigns.subject,
+        status: campaignSends.status,
+        variant: campaignSends.variant,
+        sentAt: campaignSends.sentAt,
+      })
+      .from(campaignSends)
+      .innerJoin(campaigns, eq(campaignSends.campaignId, campaigns.id))
+      .where(and(eq(campaignSends.contactId, contactId), eq(campaigns.orgId, orgId)))
+      .orderBy(desc(campaignSends.createdAt))
+      .limit(100),
+    db
+      .select({
+        id: emailEvents.id,
+        type: emailEvents.type,
+        campaignId: emailEvents.campaignId,
+        campaignName: campaigns.name,
+        url: emailEvents.url,
+        createdAt: emailEvents.createdAt,
+      })
+      .from(emailEvents)
+      .leftJoin(campaigns, eq(emailEvents.campaignId, campaigns.id))
+      .where(eq(emailEvents.contactId, contactId))
+      .orderBy(desc(emailEvents.createdAt))
+      .limit(200),
+    db
+      .select({ field: customFields, value: customFieldValues.value })
+      .from(customFieldValues)
+      .innerJoin(customFields, eq(customFieldValues.fieldId, customFields.id))
+      .where(and(eq(customFieldValues.contactId, contactId), eq(customFields.orgId, orgId))),
+  ]);
+
+  const opens = eventRows.filter(e => e.type === "open").length;
+  const clicks = eventRows.filter(e => e.type === "click").length;
+  const totalReceived = sendRows.filter(s => s.status === "sent" || s.status === "delivered").length;
+
+  return {
+    contact,
+    tags,
+    lists: listRows.map(r => ({ ...r.list, subscribedAt: r.subscribedAt })),
+    sends: sendRows,
+    events: eventRows,
+    customFields: fieldRows.map(r => ({ name: r.field.name, key: r.field.key, value: r.value })),
+    summary: { totalReceived, opens, clicks },
+  };
+}
+
+/** Look up a campaign by the Heartbeat task uid of its scheduled send. */
+export async function getCampaignBySendCronTaskUid(taskUid: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(campaigns).where(eq(campaigns.sendScheduleCronTaskUid, taskUid)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}

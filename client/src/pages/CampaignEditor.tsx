@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmailBuilder, compileToEmailHtml, compileToPlainText, type EmailBlock } from "@/components/EmailBuilder";
 import { SubjectSuggestDialog, ContentOptimizeDialog } from "@/components/AiAssistantPanel";
 import { TemplateGalleryDialog } from "@/components/EmailTemplateGallery";
-import { ArrowLeft, Save, Send, Sparkles, Wand2, FlaskConical, LayoutTemplate, Code, LayoutGrid, MailCheck } from "lucide-react";
+import { ArrowLeft, Save, Send, Sparkles, Wand2, FlaskConical, LayoutTemplate, Code, LayoutGrid, MailCheck, CalendarClock, XCircle } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Link, useParams } from "wouter";
@@ -57,6 +57,9 @@ export default function CampaignEditor() {
   const [showOptimizeAi, setShowOptimizeAi] = useState(false);
   const [showGallery, setShowGallery] = useState(false);
   const [showTestDialog, setShowTestDialog] = useState(false);
+  const [showScheduleDialog, setShowScheduleDialog] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [scheduleTime, setScheduleTime] = useState("");
   const { user } = useAuth();
   const [testEmail, setTestEmail] = useState("");
   const [testVariant, setTestVariant] = useState<"a" | "b">("a");
@@ -124,6 +127,25 @@ export default function CampaignEditor() {
     },
     onError: (e) => toast.error("Erro: " + e.message),
   });
+  const scheduleMutation = trpc.campaigns.schedule.useMutation({
+    onSuccess: (c) => {
+      toast.success(c?.scheduledAt
+        ? `Campanha agendada para ${new Date(c.scheduledAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}`
+        : "Campanha agendada");
+      setShowScheduleDialog(false);
+      utils.campaigns.list.invalidate();
+      utils.campaigns.byId.invalidate();
+    },
+    onError: (e) => toast.error("Erro ao agendar: " + e.message),
+  });
+  const unscheduleMutation = trpc.campaigns.unschedule.useMutation({
+    onSuccess: () => {
+      toast.success("Agendamento cancelado — a campanha voltou para rascunho");
+      utils.campaigns.list.invalidate();
+      utils.campaigns.byId.invalidate();
+    },
+    onError: (e) => toast.error("Erro: " + e.message),
+  });
 
   // Build final payload with compiled HTML from visual builder
   const buildPayload = useCallback(() => {
@@ -153,6 +175,19 @@ export default function CampaignEditor() {
     if (!orgId || !editId) return;
     sendMutation.mutate({ orgId, id: editId });
   }, [orgId, editId, sendMutation]);
+
+  const handleSchedule = useCallback(() => {
+    if (!orgId || !editId || !scheduleDate || !scheduleTime) {
+      toast.error("Escolha a data e o horário do envio");
+      return;
+    }
+    const dt = new Date(`${scheduleDate}T${scheduleTime}`);
+    if (isNaN(dt.getTime())) { toast.error("Data/hora inválida"); return; }
+    if (dt.getTime() < Date.now() + 60_000) { toast.error("Escolha um horário no futuro"); return; }
+    scheduleMutation.mutate({ orgId, id: editId, scheduledAt: dt });
+  }, [orgId, editId, scheduleDate, scheduleTime, scheduleMutation]);
+
+  const isScheduled = existingCampaign?.status === "scheduled";
 
   return (
     <div className="p-6 md:p-8 max-w-6xl mx-auto">
@@ -403,6 +438,26 @@ export default function CampaignEditor() {
           </Tabs>
         </Card>
 
+        {/* Scheduled banner */}
+        {isScheduled && existingCampaign?.scheduledAt && (
+          <div className="flex items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 flex-wrap">
+            <CalendarClock className="h-4 w-4 text-blue-600 shrink-0" />
+            <p className="text-sm text-blue-800 flex-1">
+              Envio agendado para <strong>{new Date(existingCampaign.scheduledAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</strong>
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-destructive hover:text-destructive"
+              disabled={unscheduleMutation.isPending}
+              onClick={() => { if (orgId && editId) unscheduleMutation.mutate({ orgId, id: editId }); }}
+            >
+              <XCircle className="mr-1.5 h-3.5 w-3.5" />
+              {unscheduleMutation.isPending ? "Cancelando..." : "Cancelar agendamento"}
+            </Button>
+          </div>
+        )}
+
         {/* Actions */}
         <div className="flex justify-end gap-3 flex-wrap">
           {editId && (
@@ -415,6 +470,12 @@ export default function CampaignEditor() {
             <Save className="mr-2 h-4 w-4" />
             {editId ? "Salvar alterações" : "Salvar rascunho"}
           </Button>
+          {editId && !isScheduled && (
+            <Button variant="outline" onClick={() => setShowScheduleDialog(true)}>
+              <CalendarClock className="mr-2 h-4 w-4" />
+              Agendar envio
+            </Button>
+          )}
           {editId && (
             <Button onClick={handleSend} disabled={sendMutation.isPending} className="shadow-premium">
               <Send className="mr-2 h-4 w-4" />
@@ -423,6 +484,39 @@ export default function CampaignEditor() {
           )}
         </div>
       </div>
+
+      {/* Schedule dialog */}
+      <Dialog open={showScheduleDialog} onOpenChange={setShowScheduleDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Agendar envio</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              A campanha será disparada automaticamente na data e horário escolhidos (fuso horário do seu dispositivo). Salve as alterações antes de agendar.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Data</Label>
+                <Input type="date" value={scheduleDate} min={new Date().toISOString().slice(0, 10)} onChange={e => setScheduleDate(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Horário</Label>
+                <Input type="time" value={scheduleTime} onChange={e => setScheduleTime(e.target.value)} />
+              </div>
+            </div>
+            {scheduleDate && scheduleTime && (
+              <p className="text-xs text-muted-foreground">
+                Envio em: <strong>{new Date(`${scheduleDate}T${scheduleTime}`).toLocaleString("pt-BR", { weekday: "long", day: "2-digit", month: "long", hour: "2-digit", minute: "2-digit" })}</strong>
+              </p>
+            )}
+            <Button className="w-full" disabled={scheduleMutation.isPending || !scheduleDate || !scheduleTime} onClick={handleSchedule}>
+              <CalendarClock className="mr-2 h-4 w-4" />
+              {scheduleMutation.isPending ? "Agendando..." : "Confirmar agendamento"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Test email dialog */}
       <Dialog open={showTestDialog} onOpenChange={setShowTestDialog}>

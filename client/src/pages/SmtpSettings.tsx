@@ -14,7 +14,7 @@ const providerLabels: Record<string, string> = {
   mailgun: "Mailgun",
   ses: "Amazon SES",
   smtp: "SMTP Customizado",
-  mailflow: "MailFlow (padrão)",
+  mailflow: "Colabix (padrão)",
 };
 
 export default function SmtpSettings() {
@@ -89,7 +89,7 @@ export default function SmtpSettings() {
                     <option value="mailgun">Mailgun</option>
                     <option value="ses">Amazon SES</option>
                     <option value="smtp">SMTP Customizado</option>
-                    <option value="mailflow">MailFlow (padrão)</option>
+                    <option value="mailflow">Colabix (padrão)</option>
                   </select>
                 </div>
                 <div className="space-y-1.5">

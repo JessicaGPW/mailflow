@@ -15,7 +15,7 @@ export default function Home() {
             <div className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center shadow-premium">
               <Mail className="h-5 w-5 text-primary-foreground" />
             </div>
-            <span className="font-semibold text-lg tracking-tight">MailFlow</span>
+            <span className="font-semibold text-lg tracking-tight">Colabix</span>
           </div>
           <div className="flex items-center gap-3">
             {isAuthenticated ? (
@@ -47,7 +47,7 @@ export default function Home() {
             <span className="text-primary">Acompanhe cada resultado.</span>
           </h1>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto leading-relaxed mb-10">
-            MailFlow é a plataforma completa para empresas gerenciarem contatos, criarem campanhas,
+            Colabix é a plataforma completa para empresas gerenciarem contatos, criarem campanhas,
             automatizarem comunicações e analisarem métricas com total controle e sofisticação.
           </p>
           <div className="flex items-center justify-center gap-3">
@@ -126,7 +126,7 @@ export default function Home() {
             Pronto para escalar suas campanhas?
           </h2>
           <p className="text-muted-foreground mb-8">
-            Comece a usar o MailFlow hoje e transforme sua comunicação por e-mail.
+            Comece a usar o Colabix hoje e transforme sua comunicação por e-mail.
           </p>
           <Button size="lg" className="shadow-premium-lg text-base h-12 px-8" onClick={() => window.location.href = "/app"}>
             Acessar plataforma
@@ -142,9 +142,9 @@ export default function Home() {
             <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center">
               <Mail className="h-4 w-4 text-primary-foreground" />
             </div>
-            <span className="text-sm font-medium">MailFlow</span>
+            <span className="text-sm font-medium">Colabix</span>
           </div>
-          <p className="text-xs text-muted-foreground">© 2026 MailFlow. Todos os direitos reservados.</p>
+          <p className="text-xs text-muted-foreground">© 2026 Colabix. Todos os direitos reservados.</p>
         </div>
       </footer>
     </div>
