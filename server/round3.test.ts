@@ -49,7 +49,8 @@ function makeCampaign(overrides: Partial<Campaign> = {}): Campaign {
   } as Campaign;
 }
 
-describe("DNS verification (live resolution)", () => {
+// Live DNS lookups are flaky in CI and offline sandboxes: opt in with RUN_NETWORK_TESTS=1.
+describe.skipIf(!process.env.RUN_NETWORK_TESTS)("DNS verification (live resolution)", () => {
   it("verifies SPF on a domain known to publish SPF (google.com) when include matches", async () => {
     // google.com publishes v=spf1 include:_spf.google.com ~all
     const result = await checkSpf("google.com", "include:_spf.google.com");

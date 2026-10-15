@@ -1,4 +1,5 @@
 import { eq, and, sql, desc, asc, inArray, like, or, gte, lte, ne, isNull, count } from "drizzle-orm";
+import { decryptSecret, encryptSecret } from "./security";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -538,6 +539,25 @@ export async function createCampaign(orgId: number, data: Partial<typeof campaig
   return result[0];
 }
 
+/**
+ * Atomically move a campaign into `sending`. Returns false when another
+ * request (double click, cron retry) already claimed it, so the same
+ * campaign is never dispatched twice.
+ */
+export async function claimCampaignForSending(
+  orgId: number,
+  id: number,
+  allowedStatuses: Array<'draft' | 'scheduled' | 'failed' | 'paused'> = ['draft', 'scheduled', 'failed', 'paused'],
+): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [result] = await db
+    .update(campaigns)
+    .set({ status: 'sending' })
+    .where(and(eq(campaigns.id, id), eq(campaigns.orgId, orgId), inArray(campaigns.status, allowedStatuses)));
+  return (result as unknown as { affectedRows?: number }).affectedRows === 1;
+}
+
 export async function updateCampaign(orgId: number, id: number, data: Partial<typeof campaigns.$inferInsert>) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -767,20 +787,32 @@ export async function recordBounceEvent(campaignId: number, sendId: number | nul
     totalBounces: sql`${campaigns.totalBounces} + 1`,
   }).where(eq(campaigns.id, campaignId));
   if (contactId) {
-    await db.update(contacts).set({ status: 'bounced' }).where(eq(contacts.id, contactId));
+    const campaign = await db.select({ orgId: campaigns.orgId }).from(campaigns).where(eq(campaigns.id, campaignId)).limit(1);
+    if (campaign.length > 0) {
+      await db.update(contacts).set({ status: 'bounced' }).where(and(eq(contacts.id, contactId), eq(contacts.orgId, campaign[0].orgId)));
+    }
   }
 }
 
 export async function recordUnsubscribeEvent(campaignId: number, sendId: number | null, contactId: number | null) {
   const db = await getDb();
   if (!db) return;
+  // Scope the contact to the campaign's organization so one tenant's
+  // campaign can never change another tenant's contacts.
+  const campaign = await db.select({ orgId: campaigns.orgId }).from(campaigns).where(eq(campaigns.id, campaignId)).limit(1);
+  if (campaign.length === 0) return;
+  const orgId = campaign[0].orgId;
+  if (contactId) {
+    const contact = await db.select({ status: contacts.status }).from(contacts).where(and(eq(contacts.id, contactId), eq(contacts.orgId, orgId))).limit(1);
+    if (contact.length === 0) return;
+    // Idempotent: repeated clicks on the link do not inflate the metric
+    if (contact[0].status === 'unsubscribed') return;
+    await db.update(contacts).set({ status: 'unsubscribed' }).where(and(eq(contacts.id, contactId), eq(contacts.orgId, orgId)));
+  }
   await createEmailEvent({ campaignId, sendId, contactId, type: 'unsubscribe' });
   await db.update(campaigns).set({
     totalUnsubscribes: sql`${campaigns.totalUnsubscribes} + 1`,
   }).where(eq(campaigns.id, campaignId));
-  if (contactId) {
-    await db.update(contacts).set({ status: 'unsubscribed' }).where(eq(contacts.id, contactId));
-  }
 }
 
 // ─────────────────────────────────────────────
@@ -895,14 +927,29 @@ export async function getSmtpConfigById(orgId: number, id: number) {
   return result.length > 0 ? result[0] : undefined;
 }
 
+type SmtpRow = typeof smtpConfigurations.$inferSelect;
+type SmtpWrite = Partial<typeof smtpConfigurations.$inferInsert>;
+
+function withDecryptedSecrets(row: SmtpRow): SmtpRow {
+  return { ...row, apiKey: decryptSecret(row.apiKey) ?? null, smtpPassword: decryptSecret(row.smtpPassword) ?? null };
+}
+
+function withEncryptedSecrets<T extends SmtpWrite>(data: T): T {
+  const out = { ...data };
+  if (out.apiKey !== undefined) out.apiKey = encryptSecret(out.apiKey) ?? null;
+  if (out.smtpPassword !== undefined) out.smtpPassword = encryptSecret(out.smtpPassword) ?? null;
+  return out;
+}
+
+/** Only for sending: returns the org's active config with secrets decrypted. */
 export async function getDefaultSmtpConfig(orgId: number) {
   const db = await getDb();
   if (!db) return undefined;
   const result = await db.select().from(smtpConfigurations).where(and(eq(smtpConfigurations.orgId, orgId), eq(smtpConfigurations.isDefault, true), eq(smtpConfigurations.isActive, true))).limit(1);
-  if (result.length > 0) return result[0];
+  if (result.length > 0) return withDecryptedSecrets(result[0]);
   // Fallback to any active config
   const fallback = await db.select().from(smtpConfigurations).where(and(eq(smtpConfigurations.orgId, orgId), eq(smtpConfigurations.isActive, true))).limit(1);
-  return fallback.length > 0 ? fallback[0] : undefined;
+  return fallback.length > 0 ? withDecryptedSecrets(fallback[0]) : undefined;
 }
 
 export async function createSmtpConfig(orgId: number, data: Partial<typeof smtpConfigurations.$inferInsert>) {
@@ -912,7 +959,7 @@ export async function createSmtpConfig(orgId: number, data: Partial<typeof smtpC
   if (data.isDefault) {
     await db.update(smtpConfigurations).set({ isDefault: false }).where(eq(smtpConfigurations.orgId, orgId));
   }
-  await db.insert(smtpConfigurations).values({ orgId, ...data } as any);
+  await db.insert(smtpConfigurations).values({ orgId, ...withEncryptedSecrets(data) } as any);
   const result = await db.select().from(smtpConfigurations).where(eq(smtpConfigurations.orgId, orgId)).orderBy(desc(smtpConfigurations.id)).limit(1);
   return result[0];
 }
@@ -923,7 +970,7 @@ export async function updateSmtpConfig(orgId: number, id: number, data: Partial<
   if (data.isDefault) {
     await db.update(smtpConfigurations).set({ isDefault: false }).where(eq(smtpConfigurations.orgId, orgId));
   }
-  await db.update(smtpConfigurations).set(data).where(and(eq(smtpConfigurations.id, id), eq(smtpConfigurations.orgId, orgId)));
+  await db.update(smtpConfigurations).set(withEncryptedSecrets(data)).where(and(eq(smtpConfigurations.id, id), eq(smtpConfigurations.orgId, orgId)));
   return getSmtpConfigById(orgId, id);
 }
 
