@@ -1,4 +1,8 @@
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
+
+// These suites talk to a real MySQL database. Without DATABASE_URL they are
+// skipped instead of failing with "Cannot read properties of undefined".
+const HAS_DB = Boolean(process.env.DATABASE_URL);
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
 import * as db from "./db";
@@ -30,6 +34,7 @@ let caller: ReturnType<typeof appRouter.createCaller>;
 let orgId: number;
 
 beforeAll(async () => {
+  if (!HAS_DB) return;
   await db.upsertUser({ openId: OPEN_ID, name: "Round4 Tester" });
   const user = await db.getUserByOpenId(OPEN_ID);
   ctx = createCtx(user!.id, OPEN_ID);
@@ -39,10 +44,11 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (!HAS_DB) return;
   // Cleanup happens implicitly; test org data is isolated per run
 });
 
-describe("campaigns.duplicate", () => {
+describe.skipIf(!HAS_DB)("campaigns.duplicate", () => {
   it("duplicates a campaign copying content, design and A/B settings with draft status", async () => {
     const original = await caller.campaigns.create({
       orgId,
@@ -79,7 +85,7 @@ describe("campaigns.duplicate", () => {
   });
 });
 
-describe("campaigns.comparisonReport", () => {
+describe.skipIf(!HAS_DB)("campaigns.comparisonReport", () => {
   it("returns only sent/sending campaigns with computed rates", async () => {
     const report = await caller.campaigns.comparisonReport({ orgId, limit: 20 });
     // Newly created org has no sent campaigns yet — drafts must not appear
@@ -94,7 +100,7 @@ describe("campaigns.comparisonReport", () => {
   });
 });
 
-describe("contacts.listAdvanced", () => {
+describe.skipIf(!HAS_DB)("contacts.listAdvanced", () => {
   it("filters by tag with AND semantics and returns tags attached", async () => {
     const c1 = await caller.contacts.create({ orgId, email: `r4a-${Date.now()}@t.com`, firstName: "Alfa" });
     const c2 = await caller.contacts.create({ orgId, email: `r4b-${Date.now()}@t.com`, firstName: "Beta" });

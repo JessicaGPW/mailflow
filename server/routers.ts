@@ -40,6 +40,21 @@ async function getUserOrg(userId: number, orgId: number) {
   return org;
 }
 
+/**
+ * Same as getUserOrg, but for destructive or outbound actions (sending a
+ * campaign, deleting it, managing provider credentials): only org admins.
+ */
+async function requireOrgAdmin(userId: number, orgId: number) {
+  const member = await db.getOrgMember(orgId, userId);
+  if (!member || member.status === 'removed') throw new TRPCError({ code: 'NOT_FOUND' });
+  if (member.role !== 'admin') {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'Apenas administradores da organização podem fazer isso.' });
+  }
+  const org = await db.getOrgById(orgId);
+  if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
+  return org;
+}
+
 // ─────────────────────────────────────────────
 // Schemas (Zod)
 // ─────────────────────────────────────────────
@@ -201,7 +216,8 @@ const updateCampaignSchema = z.object({
   designJson: z.string().optional(),
   targetListId: z.number().optional(),
   targetSegmentId: z.number().optional(),
-  status: z.enum(['draft', 'scheduled', 'sending', 'sent', 'paused', 'failed']).optional(),
+  // status is NOT editable here: it is driven by send/schedule/unschedule,
+  // otherwise a sent campaign could be flipped back to draft and re-sent.
   scheduledAt: z.date().optional(),
   isAbTest: z.boolean().optional(),
   abSubjectB: z.string().max(500).optional(),
@@ -773,8 +789,7 @@ export const appRouter = router({
     }),
 
     delete: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
+      await requireOrgAdmin(ctx.user.id, input.orgId);
       await db.deleteCampaign(input.orgId, input.id);
       return { success: true };
     }),
@@ -880,15 +895,17 @@ export const appRouter = router({
     }),
 
     send: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
+      await requireOrgAdmin(ctx.user.id, input.orgId);
       const campaign = await db.getCampaignById(input.orgId, input.id);
       if (!campaign) throw new TRPCError({ code: 'NOT_FOUND' });
       if (campaign.isAbTest && !campaign.abSubjectB) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Teste A/B ativado: defina o assunto da variante B antes de enviar.' });
       }
-      // Mark as sending
-      await db.updateCampaign(input.orgId, input.id, { status: 'sending' });
+      // Atomic claim: a double click or a concurrent request cannot send twice.
+      const claimed = await db.claimCampaignForSending(input.orgId, input.id);
+      if (!claimed) {
+        throw new TRPCError({ code: 'CONFLICT', message: 'Esta campanha já está sendo enviada ou já foi enviada.' });
+      }
 
       // Full pipeline: variant-aware rendering (A/B), tracking injection
       // (open pixel, click redirects, unsubscribe) and provider dispatch.
@@ -1204,14 +1221,12 @@ export const appRouter = router({
     }),
 
     create: protectedProcedure.input(createSmtpConfigSchema).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
+      await requireOrgAdmin(ctx.user.id, input.orgId);
       return db.createSmtpConfig(input.orgId, input);
     }),
 
     update: protectedProcedure.input(updateSmtpConfigSchema).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
+      await requireOrgAdmin(ctx.user.id, input.orgId);
       const { orgId, id, ...data } = input;
       // Don't overwrite secrets with mask values
       if (data.apiKey === '••••••••') delete data.apiKey;
@@ -1220,8 +1235,7 @@ export const appRouter = router({
     }),
 
     delete: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
+      await requireOrgAdmin(ctx.user.id, input.orgId);
       await db.deleteSmtpConfig(input.orgId, input.id);
       return { success: true };
     }),
