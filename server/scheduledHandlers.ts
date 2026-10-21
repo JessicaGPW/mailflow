@@ -23,12 +23,11 @@ export async function scheduledSendHandler(req: Request, res: Response) {
       return res.json({ ok: true, skipped: "orphan" });
     }
 
-    if (campaign.status !== "scheduled") {
+    // Atomic claim (scheduled → sending): concurrent cron retries are no-ops.
+    const claimed = await db.claimCampaignForSending(campaign.orgId, campaign.id, ["scheduled"]);
+    if (!claimed) {
       return res.json({ ok: true, skipped: "not-scheduled", status: campaign.status });
     }
-
-    // Mark as sending first (idempotency barrier against concurrent retries)
-    await db.updateCampaign(campaign.orgId, campaign.id, { status: "sending" });
 
     const result = await sendCampaign(campaign);
     const failedAll = result.totalRecipients > 0 && result.sent === 0;

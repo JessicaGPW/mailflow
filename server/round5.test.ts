@@ -1,4 +1,8 @@
 import { describe, expect, it, beforeAll } from "vitest";
+
+// These suites talk to a real MySQL database. Without DATABASE_URL they are
+// skipped instead of failing with "Cannot read properties of undefined".
+const HAS_DB = Boolean(process.env.DATABASE_URL);
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
 import * as db from "./db";
@@ -30,6 +34,7 @@ let caller: ReturnType<typeof appRouter.createCaller>;
 let orgId: number;
 
 beforeAll(async () => {
+  if (!HAS_DB) return;
   await db.upsertUser({ openId: OPEN_ID, name: "Round5 Tester" });
   const user = await db.getUserByOpenId(OPEN_ID);
   caller = appRouter.createCaller(createCtx(user!.id, OPEN_ID));
@@ -37,7 +42,7 @@ beforeAll(async () => {
   orgId = org!.id;
 });
 
-describe("contacts bulk actions", () => {
+describe.skipIf(!HAS_DB)("contacts bulk actions", () => {
   it("bulkAddTag applies tag to all selected contacts idempotently", async () => {
     const c1 = await caller.contacts.create({ orgId, email: `r5a-${Date.now()}@t.com` });
     const c2 = await caller.contacts.create({ orgId, email: `r5b-${Date.now()}@t.com` });
@@ -91,7 +96,7 @@ describe("contacts bulk actions", () => {
   });
 });
 
-describe("contacts.exportCsv", () => {
+describe.skipIf(!HAS_DB)("contacts.exportCsv", () => {
   it("exports filtered contacts with headers, tags column and CSV escaping", async () => {
     const email = `r5csv-${Date.now()}@t.com`;
     const c = await caller.contacts.create({ orgId, email, firstName: 'Ana "Teste"', lastName: "Com, Virgula" });
@@ -116,7 +121,7 @@ describe("contacts.exportCsv", () => {
   });
 });
 
-describe("campaigns.sendTest", () => {
+describe.skipIf(!HAS_DB)("campaigns.sendTest", () => {
   it("sends a test email in sandbox mode without creating send records", async () => {
     const campaign = await caller.campaigns.create({
       orgId,

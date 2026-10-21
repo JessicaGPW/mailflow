@@ -1,4 +1,8 @@
 import { describe, expect, it, beforeAll } from "vitest";
+
+// These suites talk to a real MySQL database. Without DATABASE_URL they are
+// skipped instead of failing with "Cannot read properties of undefined".
+const HAS_DB = Boolean(process.env.DATABASE_URL);
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
 import * as db from "./db";
@@ -30,6 +34,7 @@ let caller: ReturnType<typeof appRouter.createCaller>;
 let orgId: number;
 
 beforeAll(async () => {
+  if (!HAS_DB) return;
   await db.upsertUser({ openId: OPEN_ID, name: "Round6 Tester" });
   const user = await db.getUserByOpenId(OPEN_ID);
   caller = appRouter.createCaller(createCtx(user!.id, OPEN_ID));
@@ -37,7 +42,7 @@ beforeAll(async () => {
   orgId = org!.id;
 });
 
-describe("contacts.profile", () => {
+describe.skipIf(!HAS_DB)("contacts.profile", () => {
   it("returns the full 360º profile with tags, lists and empty engagement", async () => {
     const contact = await caller.contacts.create({
       orgId, email: `r6p-${Date.now()}@t.com`, firstName: "Ana", lastName: "Prof",
@@ -61,7 +66,7 @@ describe("contacts.profile", () => {
   });
 });
 
-describe("campaigns.schedule / unschedule validations", () => {
+describe.skipIf(!HAS_DB)("campaigns.schedule / unschedule validations", () => {
   it("rejects scheduling in the past", async () => {
     const campaign = await caller.campaigns.create({
       orgId, name: "Agendada R6", subject: "Assunto", htmlContent: "<p>Oi</p>",

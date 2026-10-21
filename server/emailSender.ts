@@ -1,5 +1,6 @@
 import * as db from "./db";
 import type { Campaign } from "../drizzle/schema";
+import { shuffle, signTrackingToken } from "./security";
 
 /**
  * Email sending pipeline.
@@ -41,7 +42,7 @@ export function renderVariant(campaign: Campaign, variant: "a" | "b"): RenderedE
 
 /**
  * Inject tracking into the HTML:
- * - rewrite links to /api/track/click/:shortId?c=campaignId&u=contactId
+ * - rewrite links to /api/track/click/:shortId?u=contactId&t=token
  * - append open pixel /api/track/open/:campaignId/:contactId
  * - append unsubscribe footer link
  */
@@ -52,6 +53,9 @@ export async function injectTracking(
 ): Promise<string> {
   const base = getBaseUrl();
   let result = html;
+  const clickToken = signTrackingToken("click", campaignId, contactId);
+  const openToken = signTrackingToken("open", campaignId, contactId);
+  const unsubToken = signTrackingToken("unsubscribe", campaignId, contactId);
 
   // Rewrite href links to tracked redirects
   const hrefRegex = /href="(https?:\/\/[^"]+)"/g;
@@ -62,14 +66,14 @@ export async function injectTracking(
     if (originalUrl.includes("/api/track/")) continue;
     const link = await db.getOrCreateEmailLink(campaignId, originalUrl);
     if (link) {
-      const trackedUrl = `${base}/api/track/click/${link.shortId}?c=${campaignId}&u=${contactId}`;
+      const trackedUrl = `${base}/api/track/click/${link.shortId}?u=${contactId}&t=${clickToken}`;
       result = result.replace(`href="${originalUrl}"`, `href="${trackedUrl}"`);
     }
   }
 
   // Open pixel + unsubscribe footer before </body> (or append at end)
-  const pixel = `<img src="${base}/api/track/open/${campaignId}/${contactId}" width="1" height="1" alt="" style="display:none;"/>`;
-  const unsub = `<p style="text-align:center;font-family:Arial,sans-serif;font-size:11px;color:#94a3b8;padding:16px;">Não deseja mais receber estes e-mails? <a href="${base}/api/track/unsubscribe/${campaignId}/${contactId}" style="color:#6366f1;">Cancelar inscrição</a></p>`;
+  const pixel = `<img src="${base}/api/track/open/${campaignId}/${contactId}?t=${openToken}" width="1" height="1" alt="" style="display:none;"/>`;
+  const unsub = `<p style="text-align:center;font-family:Arial,sans-serif;font-size:11px;color:#94a3b8;padding:16px;">Não deseja mais receber estes e-mails? <a href="${base}/api/track/unsubscribe/${campaignId}/${contactId}?t=${unsubToken}" style="color:#6366f1;">Cancelar inscrição</a></p>`;
   const suffix = `${unsub}${pixel}`;
   if (result.includes("</body>")) {
     result = result.replace("</body>", `${suffix}</body>`);
@@ -140,9 +144,18 @@ export async function dispatchEmail(
       return { delivered: false, error: `Mailgun ${res.status}: ${body.slice(0, 300)}`, sandbox: false };
     }
 
-    // SES and generic SMTP require AWS signature / raw SMTP — treat as
-    // configured-but-unsupported in serverless runtime, fall back to sandbox.
-    return { delivered: true, messageId: `queued-${Date.now()}`, sandbox: true };
+    if (config.provider === "mailflow") {
+      // Built-in provider ("padrão" in the UI) is the sandbox simulator.
+      return { delivered: true, messageId: `sandbox-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, sandbox: true };
+    }
+
+    // SES and generic SMTP are not implemented yet. Report a real failure
+    // instead of pretending the message was delivered.
+    return {
+      delivered: false,
+      error: `Provedor "${config.provider}" ainda não é suportado para envio. Use SendGrid ou Mailgun.`,
+      sandbox: false,
+    };
   } catch (e) {
     return { delivered: false, error: e instanceof Error ? e.message : "Unknown dispatch error", sandbox: false };
   }
@@ -220,12 +233,14 @@ async function dispatchToRecipients(
 export async function sendCampaign(campaign: Campaign): Promise<SendResult> {
   const all = await db.getCampaignRecipients(campaign.orgId, campaign.targetListId ?? undefined);
 
-  let testPool = all;
+  // Randomize who lands in the test pool and in each variant; taking the first
+  // N rows (oldest contacts) would bias the A/B result.
+  let testPool = campaign.isAbTest ? shuffle(all) : all;
   let heldForWinner = 0;
   if (campaign.isAbTest && campaign.abAutoWinner) {
     const pct = Math.min(Math.max(campaign.abTestPercent ?? 20, 5), 100);
     const testSize = Math.max(2, Math.ceil((all.length * pct) / 100));
-    testPool = all.slice(0, testSize);
+    testPool = testPool.slice(0, testSize);
     heldForWinner = all.length - testPool.length;
   }
 

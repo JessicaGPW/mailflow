@@ -1,13 +1,21 @@
 import express from "express";
 import * as db from "../db";
+import { verifyTrackingToken } from "../security";
 
 /**
  * Registers email tracking routes:
- * - GET /api/track/open/:campaignId/:contactId  → 1x1 transparent pixel
- * - GET /api/track/click/:shortId               → redirect to original URL
- * - GET /api/track/unsubscribe/:campaignId/:contactId → unsubscribe page
- * - POST /api/track/unsubscribe/:campaignId/:contactId → confirm unsubscribe
+ * - GET /api/track/open/:campaignId/:contactId?t=token  → 1x1 transparent pixel
+ * - GET /api/track/click/:shortId?u=contactId&t=token    → redirect to original URL
+ * - GET /api/track/unsubscribe/:campaignId/:contactId?t=token  → unsubscribe page
+ * - POST /api/track/unsubscribe/:campaignId/:contactId?t=token → confirm unsubscribe
+ *
+ * Every event requires an HMAC token bound to (purpose, campaignId, contactId)
+ * that is only generated when the email is built (see emailSender.injectTracking).
+ * Without it, anyone could enumerate the sequential IDs to unsubscribe contacts
+ * of any organization or inflate open/click metrics.
  */
+
+const INVALID_LINK_PAGE = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Link inválido</title></head><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#f8fafc;color:#1e293b;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0"><div style="background:#fff;border-radius:16px;padding:40px;max-width:480px;width:90%;text-align:center"><h1 style="font-size:22px">Link inválido ou expirado</h1><p style="color:#64748b">Use o link de cancelamento que veio no próprio e-mail.</p></div></body></html>`;
 
 const PIXEL_GIF_BASE64 =
   "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
@@ -18,7 +26,7 @@ export function registerTrackingRoutes(app: express.Express) {
     try {
       const campaignId = parseInt(req.params.campaignId, 10);
       const contactId = parseInt(req.params.contactId, 10);
-      if (!isNaN(campaignId) && !isNaN(contactId)) {
+      if (verifyTrackingToken("open", campaignId, contactId, req.query.t)) {
         await db.recordOpenEvent(
           campaignId,
           null,
@@ -45,14 +53,14 @@ export function registerTrackingRoutes(app: express.Express) {
       const link = await db.getEmailLinkByShortId(shortId);
       if (link) {
         await db.incrementLinkClicks(link.id);
-        // Extract campaignId and contactId from query params if present
-        const campaignId = parseInt(req.query.c as string, 10);
+        // The campaign always comes from the stored link, never from the URL.
+        const campaignId = link.campaignId;
         const contactId = parseInt(req.query.u as string, 10);
-        if (!isNaN(campaignId)) {
+        if (verifyTrackingToken("click", campaignId, contactId, req.query.t)) {
           await db.recordClickEvent(
             campaignId,
             null,
-            isNaN(contactId) ? null : contactId,
+            contactId,
             link.url,
             req.headers["user-agent"],
             req.ip
@@ -70,7 +78,11 @@ export function registerTrackingRoutes(app: express.Express) {
   app.get("/api/track/unsubscribe/:campaignId/:contactId", async (req, res) => {
     const campaignId = parseInt(req.params.campaignId, 10);
     const contactId = parseInt(req.params.contactId, 10);
+    const token = req.query.t;
     res.setHeader("Content-Type", "text/html; charset=utf-8");
+    if (!verifyTrackingToken("unsubscribe", campaignId, contactId, token)) {
+      return res.status(400).send(INVALID_LINK_PAGE);
+    }
     res.send(`
       <!DOCTYPE html>
       <html lang="pt-BR">
@@ -93,7 +105,7 @@ export function registerTrackingRoutes(app: express.Express) {
         <div class="card">
           <h1>Cancelar inscrição</h1>
           <p>Tem certeza de que deseja cancelar a inscrição? Você não receberá mais e-mails desta lista.</p>
-          <form method="POST" action="/api/track/unsubscribe/${campaignId}/${contactId}">
+          <form method="POST" action="/api/track/unsubscribe/${campaignId}/${contactId}?t=${encodeURIComponent(String(token))}">
             <button type="submit">Sim, cancelar inscrição</button>
           </form>
         </div>
@@ -104,16 +116,18 @@ export function registerTrackingRoutes(app: express.Express) {
 
   // Unsubscribe confirmation (POST)
   app.post("/api/track/unsubscribe/:campaignId/:contactId", async (req, res) => {
-    try {
-      const campaignId = parseInt(req.params.campaignId, 10);
-      const contactId = parseInt(req.params.contactId, 10);
-      if (!isNaN(campaignId) && !isNaN(contactId)) {
-        await db.recordUnsubscribeEvent(campaignId, null, contactId);
-      }
-    } catch (e) {
-      // Silent fail
-    }
+    const campaignId = parseInt(req.params.campaignId, 10);
+    const contactId = parseInt(req.params.contactId, 10);
     res.setHeader("Content-Type", "text/html; charset=utf-8");
+    if (!verifyTrackingToken("unsubscribe", campaignId, contactId, req.query.t)) {
+      return res.status(400).send(INVALID_LINK_PAGE);
+    }
+    try {
+      await db.recordUnsubscribeEvent(campaignId, null, contactId);
+    } catch (e) {
+      console.error("[Tracking] Failed to record unsubscribe", e);
+      return res.status(500).send(INVALID_LINK_PAGE);
+    }
     res.send(`
       <!DOCTYPE html>
       <html lang="pt-BR">
