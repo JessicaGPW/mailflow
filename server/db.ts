@@ -25,20 +25,48 @@ import {
   sendingDomains,
   smtpConfigurations,
 } from "../drizzle/schema";
-import { ENV } from './_core/env';
+import { randomUUID } from "node:crypto";
 
 let _db: ReturnType<typeof drizzle> | null = null;
+
+function getInsertId(result: unknown): number {
+  const header = Array.isArray(result) ? result[0] : result;
+  if (typeof header !== "object" || header === null || !("insertId" in header)) {
+    throw new Error("Database did not return an inserted row ID");
+  }
+  const insertId = Number(header.insertId);
+  if (!Number.isSafeInteger(insertId) || insertId < 1) {
+    throw new Error("Database returned an invalid inserted row ID");
+  }
+  return insertId;
+}
 
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      if (process.env.DATABASE_SSL === "true") {
+        _db = drizzle({
+          connection: {
+            uri: process.env.DATABASE_URL,
+            ssl: { rejectUnauthorized: true },
+          },
+        });
+      } else {
+        _db = drizzle(process.env.DATABASE_URL);
+      }
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
     }
   }
   return _db;
+}
+
+export async function closeDb() {
+  if (!_db) return;
+  const db = _db;
+  _db = null;
+  await db.$client.end();
 }
 
 // ─────────────────────────────────────────────
@@ -63,7 +91,6 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     });
     if (user.lastSignedIn !== undefined) { values.lastSignedIn = user.lastSignedIn; updateSet.lastSignedIn = user.lastSignedIn; }
     if (user.role !== undefined) { values.role = user.role; updateSet.role = user.role; }
-    else if (user.openId === ENV.ownerOpenId) { values.role = 'admin'; updateSet.role = 'admin'; }
     if (!values.lastSignedIn) values.lastSignedIn = new Date();
     if (Object.keys(updateSet).length === 0) updateSet.lastSignedIn = new Date();
 
@@ -88,6 +115,54 @@ export async function getUserById(id: number) {
   return result.length > 0 ? result[0] : undefined;
 }
 
+export async function getUserByEmail(email: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  return result[0];
+}
+
+export async function createLocalUserAccount(input: {
+  name: string;
+  email: string;
+  passwordHash: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  return db.transaction(async (tx) => {
+    const userResult = await tx.insert(users).values({
+      openId: `local_${randomUUID()}`,
+      name: input.name,
+      email: input.email,
+      passwordHash: input.passwordHash,
+      loginMethod: "email",
+    });
+    const userId = getInsertId(userResult);
+    const orgName = `${input.name}'s Organization`;
+    const orgResult = await tx.insert(organizations).values({
+      name: orgName,
+      slug: `org-${userId}-${Date.now().toString(36)}`,
+      ownerId: userId,
+    });
+    const orgId = getInsertId(orgResult);
+    await tx.insert(organizationMembers).values({
+      orgId,
+      userId,
+      role: "admin",
+      status: "active",
+    });
+    const created = await tx.select().from(users).where(eq(users.id, userId)).limit(1);
+    return created[0];
+  });
+}
+
+export async function updateUserLastSignedIn(userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(users).set({ lastSignedIn: new Date() }).where(eq(users.id, userId));
+}
+
 // ─────────────────────────────────────────────
 // Organization queries
 // ─────────────────────────────────────────────
@@ -95,7 +170,7 @@ export async function createOrg(name: string, slug: string, ownerId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const result = await db.insert(organizations).values({ name, slug, ownerId });
-  const orgId = (result as any)[0]?.insertId ?? (result as any).insertId;
+  const orgId = getInsertId(result);
   // Add owner as admin member
   await db.insert(organizationMembers).values({ orgId, userId: ownerId, role: 'admin', status: 'active' });
   return getOrgById(orgId);
@@ -529,6 +604,62 @@ export async function getCampaignById(orgId: number, id: number) {
   if (!db) return undefined;
   const result = await db.select().from(campaigns).where(and(eq(campaigns.id, id), eq(campaigns.orgId, orgId))).limit(1);
   return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getDueScheduledCampaigns(now = new Date()) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return db
+    .select()
+    .from(campaigns)
+    .where(and(eq(campaigns.status, "scheduled"), lte(campaigns.scheduledAt, now)));
+}
+
+export async function getDueAbWinnerCampaigns(now = new Date()) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const candidates = await db
+    .select()
+    .from(campaigns)
+    .where(and(
+      eq(campaigns.status, "sent"),
+      eq(campaigns.isAbTest, true),
+      eq(campaigns.abAutoWinner, true),
+      isNull(campaigns.abWinnerSentAt),
+      isNull(campaigns.abWinnerProcessingAt),
+      gte(campaigns.sentAt, new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)),
+    ));
+
+  return candidates.filter(campaign => {
+    if (!campaign.sentAt) return false;
+    const waitHours = Math.min(Math.max(campaign.abWaitHours ?? 4, 1), 168);
+    return campaign.sentAt.getTime() + waitHours * 60 * 60 * 1000 <= now.getTime();
+  });
+}
+
+export async function claimAbWinnerProcessing(orgId: number, id: number, now = new Date()) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [result] = await db
+    .update(campaigns)
+    .set({ abWinnerProcessingAt: now })
+    .where(and(
+      eq(campaigns.id, id),
+      eq(campaigns.orgId, orgId),
+      eq(campaigns.status, "sent"),
+      isNull(campaigns.abWinnerSentAt),
+      isNull(campaigns.abWinnerProcessingAt),
+    ));
+  return (result as unknown as { affectedRows?: number }).affectedRows === 1;
+}
+
+export async function releaseAbWinnerProcessing(orgId: number, id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db
+    .update(campaigns)
+    .set({ abWinnerProcessingAt: null })
+    .where(and(eq(campaigns.id, id), eq(campaigns.orgId, orgId), isNull(campaigns.abWinnerSentAt)));
 }
 
 export async function createCampaign(orgId: number, data: Partial<typeof campaigns.$inferInsert>) {

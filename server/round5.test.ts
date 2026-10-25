@@ -16,7 +16,7 @@ function createCtx(userId: number, openId: string): TrpcContext {
     openId,
     email: `${openId}@example.com`,
     name: "Round5 Tester",
-    loginMethod: "manus",
+    loginMethod: "email",
     role: "user",
     createdAt: new Date(),
     updatedAt: new Date(),

@@ -8,7 +8,6 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
 import {
   LayoutDashboard,
@@ -29,22 +28,23 @@ import {
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
+import { Link } from "wouter";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 import { trpc } from "@/lib/trpc";
 
 const menuItems = [
-  { icon: LayoutDashboard, label: "Dashboard", path: "/app" },
-  { icon: Users, label: "Contatos", path: "/app/contacts" },
-  { icon: ListChecks, label: "Listas", path: "/app/lists" },
-  { icon: Filter, label: "Segmentos", path: "/app/segments" },
-  { icon: Mail, label: "Campanhas", path: "/app/campaigns" },
-  { icon: Workflow, label: "Automações", path: "/app/automations" },
-  { icon: BarChart3, label: "Relatórios", path: "/app/reports" },
-  { icon: FileText, label: "Templates", path: "/app/templates" },
-  { icon: Globe, label: "Domínios", path: "/app/domains" },
-  { icon: Server, label: "Configurações SMTP", path: "/app/smtp" },
-  { icon: UserCog, label: "Equipe", path: "/app/team" },
-  { icon: Settings, label: "Configurações", path: "/app/settings" },
+  { icon: LayoutDashboard, label: "Dashboard", path: "/" },
+  { icon: Users, label: "Contatos", path: "/contacts" },
+  { icon: ListChecks, label: "Listas", path: "/lists" },
+  { icon: Filter, label: "Segmentos", path: "/segments" },
+  { icon: Mail, label: "Campanhas", path: "/campaigns" },
+  { icon: Workflow, label: "Automações", path: "/automations" },
+  { icon: BarChart3, label: "Relatórios", path: "/reports" },
+  { icon: FileText, label: "Templates", path: "/templates" },
+  { icon: Globe, label: "Domínios", path: "/domains" },
+  { icon: Server, label: "Configurações SMTP", path: "/smtp" },
+  { icon: UserCog, label: "Equipe", path: "/team" },
+  { icon: Settings, label: "Configurações", path: "/settings" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "mailflow-sidebar-width";
@@ -82,13 +82,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               Entre para acessar o painel do Colabix e gerenciar suas campanhas de e-mail marketing.
             </p>
           </div>
-          <Button
-            onClick={() => startLogin()}
-            size="lg"
-            className="w-full shadow-premium hover:shadow-premium-lg transition-all"
-          >
-            Entrar
-          </Button>
+          <Link href="/login">
+            <Button size="lg" className="w-full shadow-premium hover:shadow-premium-lg transition-all">
+              Entrar
+            </Button>
+          </Link>
         </div>
       </div>
     );
@@ -162,7 +160,7 @@ function AppLayoutContent({ children, setSidebarWidth }: AppLayoutContentProps) 
 
   const currentOrg = orgs?.find(o => o.id === currentOrgId);
   const activeMenuItem = menuItems.find(item => {
-    if (item.path === "/app") return location === "/app";
+    if (item.path === "/") return location === "/";
     return location.startsWith(item.path);
   });
 
@@ -234,8 +232,8 @@ function AppLayoutContent({ children, setSidebarWidth }: AppLayoutContentProps) 
       <nav className="flex-1 overflow-y-auto px-3 py-2">
         <div className="space-y-0.5">
           {menuItems.map(item => {
-            const isActive = item.path === "/app"
-              ? location === "/app"
+            const isActive = item.path === "/"
+              ? location === "/"
               : location.startsWith(item.path);
             return (
               <button

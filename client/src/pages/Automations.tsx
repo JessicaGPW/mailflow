@@ -50,7 +50,7 @@ export default function Automations() {
           <h1 className="text-2xl font-bold tracking-tight">Automações</h1>
           <p className="text-sm text-muted-foreground mt-1">Crie fluxos automatizados baseados em gatilhos</p>
         </div>
-        <Link href="/app/automations/new">
+        <Link href="/automations/new">
           <Button className="shadow-premium">
             <Plus className="mr-2 h-4 w-4" />
             Nova automação
@@ -72,7 +72,7 @@ export default function Automations() {
                       <TriggerIcon className="h-5 w-5 text-primary" />
                     </div>
                     <div>
-                      <Link href={`/app/automations/${a.id}`}>
+                      <Link href={`/automations/${a.id}`}>
                         <h3 className="font-semibold hover:text-primary transition-colors cursor-pointer">{a.name}</h3>
                       </Link>
                       <p className="text-xs text-muted-foreground mt-0.5">{triggerLabels[a.triggerType]}</p>
@@ -106,7 +106,7 @@ export default function Automations() {
           <Workflow className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
           <p className="text-muted-foreground font-medium">Nenhuma automação criada</p>
           <p className="text-sm text-muted-foreground/70 mt-1">Crie fluxos automatizados para engajar seus contatos.</p>
-          <Link href="/app/automations/new">
+          <Link href="/automations/new">
             <Button className="mt-4 shadow-premium">
               <Plus className="mr-2 h-4 w-4" />
               Criar automação

@@ -26,7 +26,7 @@ export default function Home() {
                 </Button>
               </Link>
             ) : (
-              <Button size="sm" onClick={() => window.location.href = "/app"} className="shadow-premium">
+              <Button size="sm" onClick={() => window.location.href = isAuthenticated ? "/app" : "/login"} className="shadow-premium">
                 Entrar
                 <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
               </Button>
@@ -51,7 +51,7 @@ export default function Home() {
             automatizarem comunicações e analisarem métricas com total controle e sofisticação.
           </p>
           <div className="flex items-center justify-center gap-3">
-            <Button size="lg" className="shadow-premium-lg text-base h-12 px-8" onClick={() => window.location.href = "/app"}>
+            <Button size="lg" className="shadow-premium-lg text-base h-12 px-8" onClick={() => window.location.href = isAuthenticated ? "/app" : "/login"}>
               Começar agora
               <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
@@ -128,7 +128,7 @@ export default function Home() {
           <p className="text-muted-foreground mb-8">
             Comece a usar o Colabix hoje e transforme sua comunicação por e-mail.
           </p>
-          <Button size="lg" className="shadow-premium-lg text-base h-12 px-8" onClick={() => window.location.href = "/app"}>
+          <Button size="lg" className="shadow-premium-lg text-base h-12 px-8" onClick={() => window.location.href = isAuthenticated ? "/app" : "/login"}>
             Acessar plataforma
             <ArrowRight className="ml-2 h-4 w-4" />
           </Button>

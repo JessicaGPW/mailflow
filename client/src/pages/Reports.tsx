@@ -179,7 +179,7 @@ export default function Reports() {
                     <tr key={c.id} className="border-b border-border/30 last:border-0 hover:bg-muted/30 transition-colors">
                       <td className="px-5 py-3 text-muted-foreground">{i + 1}</td>
                       <td className="px-5 py-3">
-                        <Link href={`/app/campaigns/${c.id}`} className="font-medium text-primary hover:underline">
+                        <Link href={`/campaigns/${c.id}`} className="font-medium text-primary hover:underline">
                           {c.name}
                         </Link>
                       </td>

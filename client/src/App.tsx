@@ -22,11 +22,13 @@ import Team from "./pages/Team";
 import OrgSettings from "./pages/OrgSettings";
 import Reports from "./pages/Reports";
 import AppLayout from "./components/AppLayout";
+import Login from "./pages/Login";
 
 function AppRouter() {
   return (
     <Switch>
       <Route path="/" component={Home} />
+      <Route path="/login" component={Login} />
       <Route path="/app" nest>
         <AppLayout>
           <Switch>

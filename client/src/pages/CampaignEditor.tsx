@@ -191,7 +191,7 @@ export default function CampaignEditor() {
 
   return (
     <div className="p-6 md:p-8 max-w-6xl mx-auto">
-      <Link href="/app/campaigns">
+      <Link href="/campaigns">
         <Button variant="ghost" size="sm" className="mb-4">
           <ArrowLeft className="mr-2 h-4 w-4" />
           Voltar

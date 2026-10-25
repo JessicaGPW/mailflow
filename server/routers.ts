@@ -3,16 +3,14 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { notifyOwner } from "./_core/notification";
-import { invokeLLM } from "./_core/llm";
-import { sendCampaign as sendCampaignPipeline, sendTestEmail } from "./emailSender";
-import { createHeartbeatJob } from "./_core/heartbeat";
-import { updateHeartbeatJob, deleteHeartbeatJob } from "./_core/heartbeat";
+import { sendCampaignAndPersist, sendTestEmail } from "./emailSender";
+import { optimizeContent as optimizeCopy, suggestSubjects as suggestCopySubjects } from "./_core/localCopywriting";
 import { verifyDomainDns } from "./dnsVerifier";
-import { parse as parseCookie } from "cookie";
 import { z } from "zod";
 import { eq, and, sql, desc } from "drizzle-orm";
 import * as db from "./db";
 import { TRPCError } from "@trpc/server";
+import { createSessionToken, hashPassword, verifyPassword } from "./_core/localAuth";
 
 // ─────────────────────────────────────────────
 // Helper: get or create default org for user
@@ -23,13 +21,10 @@ async function getOrCreateUserOrg(userId: number, userName: string) {
   // Create default org
   const slug = `org-${userId}-${Date.now().toString(36)}`;
   const org = await db.createOrg(`${userName || 'My'} Organization`, slug, userId);
-  // Notify platform owner of new org signup
-  try {
-    await notifyOwner({
-      title: "Nova organização cadastrada no Colabix",
-      content: `A organização "${org!.name}" foi criada por ${userName || 'um usuário'} (ID: ${userId}).`,
-    });
-  } catch (e) { /* non-blocking */ }
+  await notifyOwner({
+    title: "Nova organização cadastrada no Colabix",
+    content: `A organização "${org!.name}" foi criada por ${userName || 'um usuário'} (ID: ${userId}).`,
+  });
   return org;
 }
 
@@ -59,6 +54,14 @@ async function requireOrgAdmin(userId: number, orgId: number) {
 // Schemas (Zod)
 // ─────────────────────────────────────────────
 const orgIdSchema = z.object({ orgId: z.number() });
+const authCredentialsSchema = z.object({
+  email: z.string().trim().email().max(320).transform(email => email.toLowerCase()),
+  password: z.string().min(12).max(128),
+});
+const DUMMY_PASSWORD_HASH = `scrypt$${Buffer.alloc(16).toString("base64url")}$${Buffer.alloc(64).toString("base64url")}`;
+const registerSchema = authCredentialsSchema.extend({
+  name: z.string().trim().min(1).max(255),
+});
 
 const createOrgSchema = z.object({
   name: z.string().min(1).max(255),
@@ -306,6 +309,46 @@ export const appRouter = router({
 
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
+    register: publicProcedure.input(registerSchema).mutation(async ({ ctx, input }) => {
+      const existing = await db.getUserByEmail(input.email);
+      if (existing) throw new TRPCError({ code: "CONFLICT", message: "Já existe uma conta com este e-mail." });
+
+      let user: Awaited<ReturnType<typeof db.createLocalUserAccount>>;
+      try {
+        user = await db.createLocalUserAccount({
+          name: input.name,
+          email: input.email,
+          passwordHash: await hashPassword(input.password),
+        });
+      } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "ER_DUP_ENTRY") {
+          throw new TRPCError({ code: "CONFLICT", message: "Já existe uma conta com este e-mail." });
+        }
+        throw error;
+      }
+
+      const token = await createSessionToken(user.id);
+      ctx.res.cookie(COOKIE_NAME, token, {
+        ...getSessionCookieOptions(ctx.req),
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
+      return { success: true };
+    }),
+    login: publicProcedure.input(authCredentialsSchema).mutation(async ({ ctx, input }) => {
+      const user = await db.getUserByEmail(input.email);
+      const validPassword = await verifyPassword(input.password, user?.passwordHash ?? DUMMY_PASSWORD_HASH);
+      if (!user || !validPassword) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "E-mail ou senha inválidos." });
+      }
+
+      await db.updateUserLastSignedIn(user.id);
+      const token = await createSessionToken(user.id);
+      ctx.res.cookie(COOKIE_NAME, token, {
+        ...getSessionCookieOptions(ctx.req),
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
+      return { success: true };
+    }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
@@ -331,12 +374,10 @@ export const appRouter = router({
     create: protectedProcedure.input(createOrgSchema).mutation(async ({ ctx, input }) => {
       const slug = input.slug || `org-${ctx.user.id}-${Date.now().toString(36)}`;
       const org = await db.createOrg(input.name, slug, ctx.user.id);
-      try {
-        await notifyOwner({
-          title: "Nova organização cadastrada no Colabix",
-          content: `A organização "${input.name}" foi criada por ${ctx.user.name || ctx.user.email} (ID: ${ctx.user.id}).`,
-        });
-      } catch (e) { /* non-blocking */ }
+      await notifyOwner({
+        title: "Nova organização cadastrada no Colabix",
+        content: `A organização "${input.name}" foi criada por ${ctx.user.name || ctx.user.email} (ID: ${ctx.user.id}).`,
+      });
       return org;
     }),
 
@@ -842,29 +883,10 @@ export const appRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Escolha uma data/hora pelo menos 1 minuto no futuro.' });
       }
 
-      const sessionToken = parseCookie(ctx.req.headers.cookie ?? '')[COOKIE_NAME] ?? '';
-      // One-shot semantics: the cron fires at that specific minute; the handler
-      // is idempotent (only dispatches while status is `scheduled`).
-      const cron = `0 ${runAt.getUTCMinutes()} ${runAt.getUTCHours()} ${runAt.getUTCDate()} ${runAt.getUTCMonth() + 1} *`;
-
-      // Re-scheduling: update the existing cron instead of creating a duplicate
-      if (campaign.sendScheduleCronTaskUid) {
-        await updateHeartbeatJob(campaign.sendScheduleCronTaskUid, { cron, enable: true }, sessionToken);
-        return db.updateCampaign(input.orgId, input.id, { status: 'scheduled', scheduledAt: runAt });
-      }
-
-      const job = await createHeartbeatJob({
-        name: `send-campaign-${campaign.id}`,
-        cron,
-        path: '/api/scheduled/sendCampaign',
-        payload: { campaignId: campaign.id },
-        description: `Envio agendado da campanha "${campaign.name}"`,
-      }, sessionToken);
-
       return db.updateCampaign(input.orgId, input.id, {
         status: 'scheduled',
         scheduledAt: runAt,
-        sendScheduleCronTaskUid: job.taskUid,
+        sendScheduleCronTaskUid: null,
       });
     }),
 
@@ -878,14 +900,6 @@ export const appRouter = router({
       if (!campaign) throw new TRPCError({ code: 'NOT_FOUND' });
       if (campaign.status !== 'scheduled') {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Esta campanha não está agendada.' });
-      }
-      if (campaign.sendScheduleCronTaskUid) {
-        const sessionToken = parseCookie(ctx.req.headers.cookie ?? '')[COOKIE_NAME] ?? '';
-        try {
-          await deleteHeartbeatJob(campaign.sendScheduleCronTaskUid, sessionToken);
-        } catch {
-          // Cron may already be gone — proceed with local cleanup
-        }
       }
       return db.updateCampaign(input.orgId, input.id, {
         status: 'draft',
@@ -907,55 +921,20 @@ export const appRouter = router({
         throw new TRPCError({ code: 'CONFLICT', message: 'Esta campanha já está sendo enviada ou já foi enviada.' });
       }
 
-      // Full pipeline: variant-aware rendering (A/B), tracking injection
-      // (open pixel, click redirects, unsubscribe) and provider dispatch.
-      const result = await sendCampaignPipeline(campaign);
-
+      const result = await sendCampaignAndPersist(campaign);
       const failedAll = result.totalRecipients > 0 && result.sent === 0;
-      await db.updateCampaign(input.orgId, input.id, {
-        status: failedAll ? 'failed' : 'sent',
-        sentAt: new Date(),
-        totalRecipients: result.totalRecipients,
-        totalSent: result.sent,
-        totalDelivered: result.sent,
-      });
 
-      // Notify platform owner on dispatch failure (critical event)
       if (result.failed > 0) {
-        void notifyOwner({
+        await notifyOwner({
           title: 'Colabix: falha no disparo de campanha',
           content: `Campanha "${campaign.name}" (org ${input.orgId}): ${result.failed} de ${result.totalRecipients} envios falharam.${result.firstError ? ` Primeiro erro: ${result.firstError}` : ''}`,
-        }).catch(() => {});
+        });
       }
 
-      // A/B auto-winner: schedule the winner rollout via Heartbeat
-      let winnerScheduled = false;
-      let winnerScheduleError: string | undefined;
-      if (!failedAll && campaign.isAbTest && campaign.abAutoWinner && result.heldForWinner > 0) {
-        try {
-          const sessionToken = parseCookie(ctx.req.headers.cookie ?? '')[COOKIE_NAME] ?? '';
-          const waitHours = Math.min(Math.max(campaign.abWaitHours ?? 4, 1), 168);
-          const runAt = new Date(Date.now() + waitHours * 3600 * 1000);
-          // One-shot semantics: cron fires at a specific minute; handler is idempotent
-          // (abWinnerSentAt guard) so subsequent fires are no-ops.
-          const cron = `0 ${runAt.getUTCMinutes()} ${runAt.getUTCHours()} ${runAt.getUTCDate()} ${runAt.getUTCMonth() + 1} *`;
-          const job = await createHeartbeatJob({
-            name: `ab-winner-${campaign.id}`,
-            cron,
-            path: '/api/scheduled/abWinner',
-            payload: { campaignId: campaign.id },
-            description: `Envio automático da variante vencedora da campanha "${campaign.name}" após ${waitHours}h de teste`,
-          }, sessionToken);
-          await db.updateCampaign(input.orgId, input.id, { scheduleCronTaskUid: job.taskUid });
-          winnerScheduled = true;
-        } catch (e) {
-          winnerScheduleError = e instanceof Error ? e.message : 'Falha ao agendar envio da vencedora';
-          void notifyOwner({
-            title: 'Colabix: falha ao agendar envio da variante vencedora',
-            content: `Campanha "${campaign.name}" (org ${input.orgId}): ${winnerScheduleError}`,
-          }).catch(() => {});
-        }
-      }
+      const winnerScheduled = !failedAll
+        && campaign.isAbTest
+        && campaign.abAutoWinner
+        && result.heldForWinner > 0;
 
       return {
         success: !failedAll,
@@ -969,7 +948,6 @@ export const appRouter = router({
         variantBCount: result.variantBCount,
         heldForWinner: result.heldForWinner,
         winnerScheduled,
-        winnerScheduleError,
         sandbox: result.sandbox,
       };
     }),
@@ -1269,61 +1247,7 @@ export const appRouter = router({
         const org = await getUserOrg(ctx.user.id, input.orgId);
         if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
 
-        const toneMap: Record<string, string> = {
-          professional: 'profissional e confiável',
-          friendly: 'amigável e acolhedor',
-          urgent: 'com senso de urgência (sem exagerar)',
-          curious: 'que desperta curiosidade',
-        };
-
-        const response = await invokeLLM({
-          messages: [
-            {
-              role: 'system',
-              content: `Você é um especialista em copywriting de e-mail marketing em português brasileiro. Gere linhas de assunto que maximizam taxa de abertura. Regras: máximo ~50 caracteres por assunto; evite palavras que disparam filtros de spam (GRÁTIS!!!, dinheiro fácil, clique aqui); evite CAPS LOCK excessivo; o preheader deve complementar (não repetir) o assunto; responda APENAS com JSON válido.`,
-            },
-            {
-              role: 'user',
-              content: `Gere exatamente 5 sugestões de linha de assunto para um e-mail sobre: "${input.topic}".${input.audience ? ` Público-alvo: ${input.audience}.` : ''}${input.tone ? ` Tom desejado: ${toneMap[input.tone]}.` : ''} Para cada sugestão inclua um preheader complementar e uma breve justificativa.`,
-            },
-          ],
-          response_format: {
-            type: 'json_schema',
-            json_schema: {
-              name: 'subject_suggestions',
-              strict: true,
-              schema: {
-                type: 'object',
-                properties: {
-                  suggestions: {
-                    type: 'array',
-                    items: {
-                      type: 'object',
-                      properties: {
-                        subject: { type: 'string', description: 'Linha de assunto (máx ~50 chars)' },
-                        preheader: { type: 'string', description: 'Preheader complementar' },
-                        rationale: { type: 'string', description: 'Justificativa breve' },
-                      },
-                      required: ['subject', 'preheader', 'rationale'],
-                      additionalProperties: false,
-                    },
-                  },
-                },
-                required: ['suggestions'],
-                additionalProperties: false,
-              },
-            },
-          },
-        });
-
-        const raw = response.choices[0]?.message?.content;
-        const text = typeof raw === 'string' ? raw : JSON.stringify(raw);
-        try {
-          const parsed = JSON.parse(text) as { suggestions: Array<{ subject: string; preheader: string; rationale: string }> };
-          return parsed;
-        } catch {
-          throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Falha ao interpretar resposta da IA' });
-        }
+        return suggestCopySubjects(input.topic, input.audience, input.tone);
       }),
 
     optimizeContent: protectedProcedure
@@ -1337,50 +1261,7 @@ export const appRouter = router({
         const org = await getUserOrg(ctx.user.id, input.orgId);
         if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
 
-        const goalMap: Record<string, string> = {
-          clarity: 'melhorar a clareza e legibilidade, simplificando frases longas',
-          engagement: 'aumentar o engajamento com linguagem mais envolvente e pessoal',
-          conversion: 'otimizar para conversão com CTAs mais fortes e senso de valor',
-          shorten: 'encurtar o texto mantendo a mensagem essencial',
-        };
-
-        const response = await invokeLLM({
-          messages: [
-            {
-              role: 'system',
-              content: `Você é um especialista em copywriting de e-mail marketing em português brasileiro. Otimize o texto do e-mail fornecido. ${input.isHtml ? 'O conteúdo está em HTML — PRESERVE toda a estrutura de tags HTML, otimizando apenas os textos visíveis.' : 'O conteúdo é texto simples.'} Responda APENAS com JSON válido.`,
-            },
-            {
-              role: 'user',
-              content: `Objetivo: ${goalMap[input.goal]}.\n\nConteúdo original:\n${input.content}\n\nRetorne o conteúdo otimizado e uma lista das principais mudanças feitas (em português).`,
-            },
-          ],
-          response_format: {
-            type: 'json_schema',
-            json_schema: {
-              name: 'optimized_content',
-              strict: true,
-              schema: {
-                type: 'object',
-                properties: {
-                  optimized: { type: 'string', description: 'Conteúdo otimizado' },
-                  changes: { type: 'array', items: { type: 'string' }, description: 'Mudanças feitas' },
-                },
-                required: ['optimized', 'changes'],
-                additionalProperties: false,
-              },
-            },
-          },
-        });
-
-        const raw = response.choices[0]?.message?.content;
-        const text = typeof raw === 'string' ? raw : JSON.stringify(raw);
-        try {
-          const parsed = JSON.parse(text) as { optimized: string; changes: string[] };
-          return parsed;
-        } catch {
-          throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Falha ao interpretar resposta da IA' });
-        }
+        return optimizeCopy(input.content, input.goal, input.isHtml);
       }),
   }),
 });

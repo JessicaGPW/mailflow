@@ -477,7 +477,7 @@ export default function Contacts() {
                       <Checkbox checked={selectedIds.has(c.id)} onCheckedChange={() => toggleSelect(c.id)} aria-label={`Selecionar ${c.email}`} />
                     </td>
                     <td className="px-4 py-3 text-sm font-medium">
-                      <Link href={`/app/contacts/${c.id}`} className="hover:text-primary hover:underline underline-offset-2 transition-colors">
+                      <Link href={`/contacts/${c.id}`} className="hover:text-primary hover:underline underline-offset-2 transition-colors">
                         {c.email}
                       </Link>
                     </td>

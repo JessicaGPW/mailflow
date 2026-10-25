@@ -86,7 +86,7 @@ export default function AutomationEditor() {
 
   return (
     <div className="p-6 md:p-8 max-w-4xl mx-auto">
-      <Link href="/app/automations">
+      <Link href="/automations">
         <Button variant="ghost" size="sm" className="mb-4">
           <ArrowLeft className="mr-2 h-4 w-4" />
           Voltar
