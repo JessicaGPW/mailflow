@@ -8,7 +8,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 // ─────────────────────────────────────────────
-// Dialog de sugestão de assuntos com IA
+// Subject suggestions are generated locally without an external AI service.
 // ─────────────────────────────────────────────
 export function SubjectSuggestDialog({
   orgId,
@@ -44,10 +44,10 @@ export function SubjectSuggestDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-primary" />
-            Sugestões de assunto com IA
+            Sugestões de assunto
           </DialogTitle>
           <DialogDescription>
-            Descreva o tema do e-mail e receba 5 linhas de assunto otimizadas para abertura.
+            Sugestões locais prontas para editar. Nenhum serviço externo é usado.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 py-2 max-h-[65vh] overflow-y-auto">
@@ -105,7 +105,7 @@ export function SubjectSuggestDialog({
 }
 
 // ─────────────────────────────────────────────
-// Dialog de otimização de conteúdo com IA
+// Text cleanup uses deterministic local rules and preserves HTML tags.
 // ─────────────────────────────────────────────
 export function ContentOptimizeDialog({
   orgId,
@@ -142,10 +142,10 @@ export function ContentOptimizeDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Wand2 className="h-5 w-5 text-primary" />
-            Otimizar texto com IA
+            Revisar texto localmente
           </DialogTitle>
           <DialogDescription>
-            A IA analisará o conteúdo do e-mail e sugerirá uma versão otimizada.
+            Regras locais ajudam a simplificar o texto sem enviar o conteúdo para fora deste servidor.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 py-2 max-h-[65vh] overflow-y-auto">

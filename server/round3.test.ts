@@ -41,7 +41,6 @@ function makeCampaign(overrides: Partial<Campaign> = {}): Campaign {
     abWaitHours: 4,
     abWinnerVariant: null,
     abWinnerSentAt: null,
-    scheduleCronTaskUid: null,
     createdBy: null,
     createdAt: new Date(),
     updatedAt: new Date(),

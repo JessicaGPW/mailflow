@@ -54,7 +54,7 @@ export default function ContactProfile() {
   if (error || !profile) {
     return (
       <div className="p-6 md:p-8 max-w-5xl mx-auto">
-        <Link href="/app/contacts"><Button variant="ghost" size="sm"><ArrowLeft className="mr-2 h-4 w-4" />Voltar</Button></Link>
+        <Link href="/contacts"><Button variant="ghost" size="sm"><ArrowLeft className="mr-2 h-4 w-4" />Voltar</Button></Link>
         <p className="mt-6 text-muted-foreground">Contato não encontrado.</p>
       </div>
     );
@@ -67,7 +67,7 @@ export default function ContactProfile() {
 
   return (
     <div className="p-6 md:p-8 max-w-5xl mx-auto">
-      <Link href="/app/contacts">
+      <Link href="/contacts">
         <Button variant="ghost" size="sm" className="mb-4">
           <ArrowLeft className="mr-2 h-4 w-4" />
           Voltar para contatos
@@ -169,7 +169,7 @@ export default function ContactProfile() {
             ) : (
               <div className="space-y-2.5 max-h-[240px] overflow-y-auto pr-1">
                 {sends.map(s => (
-                  <Link key={s.id} href={`/app/campaigns/${s.campaignId}`}>
+                  <Link key={s.id} href={`/campaigns/${s.campaignId}`}>
                     <div className="flex items-center justify-between gap-3 p-2.5 rounded-lg border border-border/50 hover:bg-muted/40 transition-colors cursor-pointer">
                       <div className="min-w-0">
                         <p className="text-sm font-medium truncate">{s.campaignName}</p>

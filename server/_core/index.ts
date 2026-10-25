@@ -1,15 +1,14 @@
-import "dotenv/config";
+import { config as loadEnv } from "dotenv";
+loadEnv({ path: process.env.ENV_FILE ?? ".env", override: true });
 import express from "express";
 import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { registerOAuthRoutes } from "./oauth";
-import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { registerTrackingRoutes } from "./tracking";
-import { abWinnerHandler, scheduledSendHandler } from "../scheduledHandlers";
+import { startLocalScheduler } from "../scheduledHandlers";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -36,12 +35,7 @@ async function startServer() {
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
-  registerStorageProxy(app);
-  registerOAuthRoutes(app);
   registerTrackingRoutes(app);
-  // Heartbeat scheduled callbacks (must be before Vite/static fallthrough)
-  app.post("/api/scheduled/abWinner", abWinnerHandler);
-  app.post("/api/scheduled/sendCampaign", scheduledSendHandler);
   // tRPC API
   app.use(
     "/api/trpc",
@@ -66,6 +60,7 @@ async function startServer() {
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
+    startLocalScheduler();
   });
 }
 

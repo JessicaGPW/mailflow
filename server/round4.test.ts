@@ -9,13 +9,11 @@ import * as db from "./db";
 
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 
-function createCtx(userId: number, openId: string): TrpcContext {
+function createCtx(userId: number, email: string): TrpcContext {
   const user: AuthenticatedUser = {
     id: userId,
-    openId,
-    email: `${openId}@example.com`,
+    email,
     name: "Round4 Tester",
-    loginMethod: "manus",
     role: "user",
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -28,16 +26,16 @@ function createCtx(userId: number, openId: string): TrpcContext {
   };
 }
 
-const OPEN_ID = `round4-tester-${Date.now()}`;
+const TEST_EMAIL = `round4-tester-${Date.now()}@example.com`;
 let ctx: TrpcContext;
 let caller: ReturnType<typeof appRouter.createCaller>;
 let orgId: number;
 
 beforeAll(async () => {
   if (!HAS_DB) return;
-  await db.upsertUser({ openId: OPEN_ID, name: "Round4 Tester" });
-  const user = await db.getUserByOpenId(OPEN_ID);
-  ctx = createCtx(user!.id, OPEN_ID);
+  await db.upsertUser({ email: TEST_EMAIL, name: "Round4 Tester" });
+  const user = await db.getUserByEmail(TEST_EMAIL);
+  ctx = createCtx(user!.id, TEST_EMAIL);
   caller = appRouter.createCaller(ctx);
   const org = await caller.org.create({ name: `Org Round4 ${Date.now()}` });
   orgId = org!.id;

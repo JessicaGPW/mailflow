@@ -10,13 +10,11 @@ import { sendTestEmail } from "./emailSender";
 
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 
-function createCtx(userId: number, openId: string): TrpcContext {
+function createCtx(userId: number, email: string): TrpcContext {
   const user: AuthenticatedUser = {
     id: userId,
-    openId,
-    email: `${openId}@example.com`,
+    email,
     name: "Round5 Tester",
-    loginMethod: "manus",
     role: "user",
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -29,15 +27,15 @@ function createCtx(userId: number, openId: string): TrpcContext {
   };
 }
 
-const OPEN_ID = `round5-tester-${Date.now()}`;
+const TEST_EMAIL = `round5-tester-${Date.now()}@example.com`;
 let caller: ReturnType<typeof appRouter.createCaller>;
 let orgId: number;
 
 beforeAll(async () => {
   if (!HAS_DB) return;
-  await db.upsertUser({ openId: OPEN_ID, name: "Round5 Tester" });
-  const user = await db.getUserByOpenId(OPEN_ID);
-  caller = appRouter.createCaller(createCtx(user!.id, OPEN_ID));
+  await db.upsertUser({ email: TEST_EMAIL, name: "Round5 Tester" });
+  const user = await db.getUserByEmail(TEST_EMAIL);
+  caller = appRouter.createCaller(createCtx(user!.id, TEST_EMAIL));
   const org = await caller.org.create({ name: `Org Round5 ${Date.now()}` });
   orgId = org!.id;
 });

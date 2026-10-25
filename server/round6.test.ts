@@ -10,13 +10,11 @@ import { parseCsv, guessMapping } from "../client/src/components/CsvImportWizard
 
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 
-function createCtx(userId: number, openId: string): TrpcContext {
+function createCtx(userId: number, email: string): TrpcContext {
   const user: AuthenticatedUser = {
     id: userId,
-    openId,
-    email: `${openId}@example.com`,
+    email,
     name: "Round6 Tester",
-    loginMethod: "manus",
     role: "user",
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -29,15 +27,15 @@ function createCtx(userId: number, openId: string): TrpcContext {
   };
 }
 
-const OPEN_ID = `round6-tester-${Date.now()}`;
+const TEST_EMAIL = `round6-tester-${Date.now()}@example.com`;
 let caller: ReturnType<typeof appRouter.createCaller>;
 let orgId: number;
 
 beforeAll(async () => {
   if (!HAS_DB) return;
-  await db.upsertUser({ openId: OPEN_ID, name: "Round6 Tester" });
-  const user = await db.getUserByOpenId(OPEN_ID);
-  caller = appRouter.createCaller(createCtx(user!.id, OPEN_ID));
+  await db.upsertUser({ email: TEST_EMAIL, name: "Round6 Tester" });
+  const user = await db.getUserByEmail(TEST_EMAIL);
+  caller = appRouter.createCaller(createCtx(user!.id, TEST_EMAIL));
   const org = await caller.org.create({ name: `Org Round6 ${Date.now()}` });
   orgId = org!.id;
 });
@@ -98,22 +96,6 @@ describe.skipIf(!HAS_DB)("campaigns.schedule / unschedule validations", () => {
     ).rejects.toThrow();
   });
 
-  it("looks up a campaign by its scheduled-send cron uid", async () => {
-    const campaign = await caller.campaigns.create({
-      orgId, name: "Cron R6", subject: "S", htmlContent: "<p>x</p>",
-    });
-    const fakeUid = `test-uid-${Date.now()}`;
-    await db.updateCampaign(orgId, campaign!.id, {
-      sendScheduleCronTaskUid: fakeUid,
-      status: "scheduled",
-      scheduledAt: new Date(Date.now() + 3600_000),
-    });
-
-    const found = await db.getCampaignBySendCronTaskUid(fakeUid);
-    expect(found?.id).toBe(campaign!.id);
-    expect(found?.status).toBe("scheduled");
-    expect(await db.getCampaignBySendCronTaskUid("uid-inexistente")).toBeUndefined();
-  });
 });
 
 describe("CSV parser and column mapping", () => {

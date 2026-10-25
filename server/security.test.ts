@@ -20,7 +20,8 @@ import {
   signTrackingToken,
   verifyTrackingToken,
 } from "./security";
-import { dispatchEmail, injectTracking } from "./emailSender";
+import { injectTracking } from "./emailSender";
+import { dispatchEmail } from "./email/providers";
 import { registerTrackingRoutes } from "./_core/tracking";
 
 describe("tracking tokens", () => {

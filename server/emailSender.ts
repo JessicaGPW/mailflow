@@ -1,6 +1,9 @@
 import * as db from "./db";
 import type { Campaign } from "../drizzle/schema";
 import { shuffle, signTrackingToken } from "./security";
+import { dispatchEmail } from "./email/providers";
+
+export { dispatchEmail };
 
 /**
  * Email sending pipeline.
@@ -32,10 +35,17 @@ function getBaseUrl(): string {
  * A/B configuration. Variant B falls back to variant A content when only
  * the subject differs.
  */
-export function renderVariant(campaign: Campaign, variant: "a" | "b"): RenderedEmail {
+export function renderVariant(
+  campaign: Campaign,
+  variant: "a" | "b"
+): RenderedEmail {
   const isB = variant === "b" && campaign.isAbTest;
-  const subject = isB && campaign.abSubjectB ? campaign.abSubjectB : campaign.subject;
-  const html = isB && campaign.abHtmlContentB ? campaign.abHtmlContentB : (campaign.htmlContent || "");
+  const subject =
+    isB && campaign.abSubjectB ? campaign.abSubjectB : campaign.subject;
+  const html =
+    isB && campaign.abHtmlContentB
+      ? campaign.abHtmlContentB
+      : campaign.htmlContent || "";
   const text = campaign.textContent || "";
   return { subject, html, text, variant: isB ? "b" : "a" };
 }
@@ -83,84 +93,6 @@ export async function injectTracking(
   return result;
 }
 
-type SmtpConfig = NonNullable<Awaited<ReturnType<typeof db.getDefaultSmtpConfig>>>;
-
-/**
- * Dispatch a single message through the org's provider.
- * Returns { delivered, messageId?, error? }.
- */
-export async function dispatchEmail(
-  config: SmtpConfig | undefined,
-  params: { to: string; subject: string; html: string; text: string; fromName: string; fromEmail: string; replyTo?: string }
-): Promise<{ delivered: boolean; messageId?: string; error?: string; sandbox: boolean }> {
-  if (!config || !config.apiKey) {
-    // Sandbox mode: no provider configured — simulate delivery so the
-    // platform flow remains fully testable without external credentials.
-    return { delivered: true, messageId: `sandbox-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, sandbox: true };
-  }
-
-  try {
-    if (config.provider === "sendgrid") {
-      const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${config.apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          personalizations: [{ to: [{ email: params.to }] }],
-          from: { email: params.fromEmail, name: params.fromName },
-          reply_to: params.replyTo ? { email: params.replyTo } : undefined,
-          subject: params.subject,
-          content: [
-            { type: "text/plain", value: params.text || " " },
-            { type: "text/html", value: params.html || " " },
-          ],
-        }),
-      });
-      if (res.status === 202) {
-        return { delivered: true, messageId: res.headers.get("x-message-id") || undefined, sandbox: false };
-      }
-      const body = await res.text();
-      return { delivered: false, error: `SendGrid ${res.status}: ${body.slice(0, 300)}`, sandbox: false };
-    }
-
-    if (config.provider === "mailgun") {
-      const domain = config.smtpHost || "";
-      const form = new URLSearchParams();
-      form.set("from", `${params.fromName} <${params.fromEmail}>`);
-      form.set("to", params.to);
-      form.set("subject", params.subject);
-      form.set("html", params.html);
-      form.set("text", params.text);
-      if (params.replyTo) form.set("h:Reply-To", params.replyTo);
-      const res = await fetch(`https://api.mailgun.net/v3/${domain}/messages`, {
-        method: "POST",
-        headers: { Authorization: `Basic ${Buffer.from(`api:${config.apiKey}`).toString("base64")}` },
-        body: form,
-      });
-      if (res.ok) {
-        const data = (await res.json()) as { id?: string };
-        return { delivered: true, messageId: data.id, sandbox: false };
-      }
-      const body = await res.text();
-      return { delivered: false, error: `Mailgun ${res.status}: ${body.slice(0, 300)}`, sandbox: false };
-    }
-
-    if (config.provider === "mailflow") {
-      // Built-in provider ("padrão" in the UI) is the sandbox simulator.
-      return { delivered: true, messageId: `sandbox-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, sandbox: true };
-    }
-
-    // SES and generic SMTP are not implemented yet. Report a real failure
-    // instead of pretending the message was delivered.
-    return {
-      delivered: false,
-      error: `Provedor "${config.provider}" ainda não é suportado para envio. Use SendGrid ou Mailgun.`,
-      sandbox: false,
-    };
-  } catch (e) {
-    return { delivered: false, error: e instanceof Error ? e.message : "Unknown dispatch error", sandbox: false };
-  }
-}
-
 export type SendResult = {
   totalRecipients: number;
   sent: number;
@@ -176,11 +108,12 @@ export type SendResult = {
 async function dispatchToRecipients(
   campaign: Campaign,
   recipients: Array<{ id: number; email: string }>,
-  pickVariant: (index: number) => "a" | "b",
+  pickVariant: (index: number) => "a" | "b"
 ): Promise<Omit<SendResult, "totalRecipients" | "heldForWinner">> {
   const smtpConfig = await db.getDefaultSmtpConfig(campaign.orgId);
-  const fromName = campaign.fromName || "Colabix";
-  const fromEmail = campaign.fromEmail || smtpConfig?.fromEmail || "noreply@mailflow.app";
+  const fromName = campaign.fromName || "MailFlow";
+  const fromEmail =
+    campaign.fromEmail || smtpConfig?.fromEmail || "noreply@mailflow.app";
 
   let sent = 0;
   let failed = 0;
@@ -211,11 +144,26 @@ async function dispatchToRecipients(
     if (result.sandbox) sandbox = true;
     if (result.delivered) {
       sent++;
-      await db.createCampaignSendFull(campaign.id, r.id, r.email, variant, "sent", result.messageId);
+      await db.createCampaignSendFull(
+        campaign.id,
+        r.id,
+        r.email,
+        variant,
+        "sent",
+        result.messageId
+      );
     } else {
       failed++;
       if (!firstError) firstError = result.error;
-      await db.createCampaignSendFull(campaign.id, r.id, r.email, variant, "failed", undefined, result.error);
+      await db.createCampaignSendFull(
+        campaign.id,
+        r.id,
+        r.email,
+        variant,
+        "failed",
+        undefined,
+        result.error
+      );
     }
   }
 
@@ -228,10 +176,13 @@ async function dispatchToRecipients(
  *
  * When `abAutoWinner` is enabled, only `abTestPercent`% of the audience
  * receives the test (split 50/50 between variants); the remainder is held
- * back until `sendWinnerToRemainder` runs (via Heartbeat after `abWaitHours`).
+ * back until `sendWinnerToRemainder` runs (via the local scheduler after `abWaitHours`).
  */
 export async function sendCampaign(campaign: Campaign): Promise<SendResult> {
-  const all = await db.getCampaignRecipients(campaign.orgId, campaign.targetListId ?? undefined);
+  const all = await db.getCampaignRecipients(
+    campaign.orgId,
+    campaign.targetListId ?? undefined
+  );
 
   // Randomize who lands in the test pool and in each variant; taking the first
   // N rows (oldest contacts) would bias the A/B result.
@@ -244,13 +195,34 @@ export async function sendCampaign(campaign: Campaign): Promise<SendResult> {
     heldForWinner = all.length - testPool.length;
   }
 
-  const stats = await dispatchToRecipients(
-    campaign,
-    testPool,
-    (i) => (campaign.isAbTest ? (i % 2 === 0 ? "a" : "b") : "a"),
+  const stats = await dispatchToRecipients(campaign, testPool, i =>
+    campaign.isAbTest ? (i % 2 === 0 ? "a" : "b") : "a"
   );
 
   return { ...stats, totalRecipients: all.length, heldForWinner };
+}
+
+export async function sendCampaignAndPersist(
+  campaign: Campaign
+): Promise<SendResult> {
+  try {
+    const result = await sendCampaign(campaign);
+    const failedAll = result.totalRecipients > 0 && result.sent === 0;
+    await db.updateCampaign(campaign.orgId, campaign.id, {
+      status: failedAll ? "failed" : "sent",
+      sentAt: new Date(),
+      totalRecipients: result.totalRecipients,
+      totalSent: result.sent,
+      totalDelivered: result.sent,
+    });
+    return result;
+  } catch (error) {
+    await db.updateCampaign(campaign.orgId, campaign.id, {
+      status: "failed",
+      sentAt: new Date(),
+    });
+    throw error;
+  }
 }
 
 /**
@@ -268,12 +240,23 @@ export async function sendWinnerToRemainder(campaign: Campaign): Promise<{
 }> {
   const results = await db.getAbTestResults(campaign.id);
   const criteria = campaign.abWinnerCriteria || "open_rate";
-  const rateOf = (v: { sent: number; uniqueOpens: number; uniqueClicks: number }) =>
-    v.sent === 0 ? 0 : criteria === "open_rate" ? v.uniqueOpens / v.sent : v.uniqueClicks / v.sent;
+  const rateOf = (v: {
+    sent: number;
+    uniqueOpens: number;
+    uniqueClicks: number;
+  }) =>
+    v.sent === 0
+      ? 0
+      : criteria === "open_rate"
+        ? v.uniqueOpens / v.sent
+        : v.uniqueClicks / v.sent;
   // Tie favors variant A (original)
   const winner: "a" | "b" = rateOf(results.b) > rateOf(results.a) ? "b" : "a";
 
-  const all = await db.getCampaignRecipients(campaign.orgId, campaign.targetListId ?? undefined);
+  const all = await db.getCampaignRecipients(
+    campaign.orgId,
+    campaign.targetListId ?? undefined
+  );
   const alreadySent = await db.getSentContactIds(campaign.id);
   const remainder = all.filter(r => !alreadySent.has(r.id));
 
@@ -298,12 +281,13 @@ export async function sendWinnerToRemainder(campaign: Campaign): Promise<{
 export async function sendTestEmail(
   campaign: Campaign,
   to: string,
-  variant: "a" | "b" = "a",
+  variant: "a" | "b" = "a"
 ): Promise<{ delivered: boolean; sandbox: boolean; error?: string }> {
   const smtpConfig = await db.getDefaultSmtpConfig(campaign.orgId);
   const rendered = renderVariant(campaign, variant);
-  const fromName = campaign.fromName || "Colabix";
-  const fromEmail = campaign.fromEmail || smtpConfig?.fromEmail || "noreply@mailflow.app";
+  const fromName = campaign.fromName || "MailFlow";
+  const fromEmail =
+    campaign.fromEmail || smtpConfig?.fromEmail || "noreply@mailflow.app";
 
   const banner = `<div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;padding:10px 16px;margin-bottom:16px;font-family:Arial,sans-serif;font-size:12px;color:#4338ca;">E-mail de teste — este envio não gera métricas nem registros de campanha.</div>`;
   const html = rendered.html.includes("<body")
@@ -320,5 +304,9 @@ export async function sendTestEmail(
     replyTo: campaign.replyTo || undefined,
   });
 
-  return { delivered: result.delivered, sandbox: result.sandbox, error: result.error };
+  return {
+    delivered: result.delivered,
+    sandbox: result.sandbox,
+    error: result.error,
+  };
 }

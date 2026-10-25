@@ -48,7 +48,7 @@ export default function Dashboard() {
           <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-sm text-muted-foreground mt-1">Visão geral da sua conta e performance das campanhas</p>
         </div>
-        <Link href="/app/campaigns/new">
+        <Link href="/campaigns/new">
           <Button className="shadow-premium">
             <Mail className="mr-2 h-4 w-4" />
             Nova campanha
@@ -75,14 +75,14 @@ export default function Dashboard() {
       <div>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold tracking-tight">Campanhas recentes</h2>
-          <Link href="/app/campaigns">
+          <Link href="/campaigns">
             <Button variant="ghost" size="sm">Ver todas</Button>
           </Link>
         </div>
         {metrics?.recentCampaigns && metrics.recentCampaigns.length > 0 ? (
           <div className="space-y-2">
             {metrics.recentCampaigns.map((campaign) => (
-              <Link key={campaign.id} href={`/app/campaigns/${campaign.id}`}>
+              <Link key={campaign.id} href={`/campaigns/${campaign.id}`}>
                 <Card className="p-4 shadow-premium border-border/50 hover:shadow-premium-lg transition-all cursor-pointer">
                   <div className="flex items-center justify-between">
                     <div className="flex-1 min-w-0">
@@ -123,7 +123,7 @@ export default function Dashboard() {
             <Mail className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
             <p className="text-muted-foreground font-medium">Nenhuma campanha ainda</p>
             <p className="text-sm text-muted-foreground/70 mt-1">Crie sua primeira campanha para começar a enviar e-mails.</p>
-            <Link href="/app/campaigns/new">
+            <Link href="/campaigns/new">
               <Button className="mt-4 shadow-premium">
                 <Mail className="mr-2 h-4 w-4" />
                 Criar campanha

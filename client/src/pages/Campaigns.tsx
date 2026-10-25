@@ -45,7 +45,7 @@ export default function Campaigns() {
           <h1 className="text-2xl font-bold tracking-tight">Campanhas</h1>
           <p className="text-sm text-muted-foreground mt-1">Crie e gerencie suas campanhas de e-mail</p>
         </div>
-        <Link href="/app/campaigns/new">
+        <Link href="/campaigns/new">
           <Button className="shadow-premium">
             <Plus className="mr-2 h-4 w-4" />
             Nova campanha
@@ -63,7 +63,7 @@ export default function Campaigns() {
             return (
               <Card key={c.id} className="p-4 shadow-premium border-border/50 hover:shadow-premium-lg transition-all">
                 <div className="flex items-center justify-between gap-4">
-                  <Link href={`/app/campaigns/${c.id}`} className="flex-1 min-w-0">
+                  <Link href={`/campaigns/${c.id}`} className="flex-1 min-w-0">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0" style={{ backgroundColor: "color-mix(in oklch, var(--primary) 10%, transparent)" }}>
                         <Mail className="h-5 w-5 text-primary" />
@@ -121,7 +121,7 @@ export default function Campaigns() {
           <Mail className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
           <p className="text-muted-foreground font-medium">Nenhuma campanha criada</p>
           <p className="text-sm text-muted-foreground/70 mt-1">Crie sua primeira campanha para começar a enviar e-mails.</p>
-          <Link href="/app/campaigns/new">
+          <Link href="/campaigns/new">
             <Button className="mt-4 shadow-premium">
               <Plus className="mr-2 h-4 w-4" />
               Criar campanha
