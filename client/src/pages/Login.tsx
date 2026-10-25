@@ -54,7 +54,7 @@ export default function Login() {
             <Mail className="h-6 w-6 text-primary-foreground" />
           </div>
           <h1 className="text-2xl font-semibold">
-            {mode === "login" ? "Entrar no Colabix" : "Criar sua conta"}
+            {mode === "login" ? "Entrar no MailFlow" : "Criar sua conta"}
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
             {mode === "login"

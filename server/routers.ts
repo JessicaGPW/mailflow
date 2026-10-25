@@ -4,13 +4,20 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { notifyOwner } from "./_core/notification";
 import { sendCampaignAndPersist, sendTestEmail } from "./emailSender";
-import { optimizeContent as optimizeCopy, suggestSubjects as suggestCopySubjects } from "./_core/localCopywriting";
+import {
+  optimizeContent as optimizeCopy,
+  suggestSubjects as suggestCopySubjects,
+} from "./_core/localCopywriting";
 import { verifyDomainDns } from "./dnsVerifier";
 import { z } from "zod";
 import { eq, and, sql, desc } from "drizzle-orm";
 import * as db from "./db";
 import { TRPCError } from "@trpc/server";
-import { createSessionToken, hashPassword, verifyPassword } from "./_core/localAuth";
+import {
+  createSessionToken,
+  hashPassword,
+  verifyPassword,
+} from "./_core/localAuth";
 
 // ─────────────────────────────────────────────
 // Helper: get or create default org for user
@@ -20,17 +27,21 @@ async function getOrCreateUserOrg(userId: number, userName: string) {
   if (orgs.length > 0) return orgs[0].org;
   // Create default org
   const slug = `org-${userId}-${Date.now().toString(36)}`;
-  const org = await db.createOrg(`${userName || 'My'} Organization`, slug, userId);
+  const org = await db.createOrg(
+    `${userName || "My"} Organization`,
+    slug,
+    userId
+  );
   await notifyOwner({
-    title: "Nova organização cadastrada no Colabix",
-    content: `A organização "${org!.name}" foi criada por ${userName || 'um usuário'} (ID: ${userId}).`,
+    title: "Nova organização cadastrada no MailFlow",
+    content: `A organização "${org!.name}" foi criada por ${userName || "um usuário"} (ID: ${userId}).`,
   });
   return org;
 }
 
 async function getUserOrg(userId: number, orgId: number) {
   const member = await db.getOrgMember(orgId, userId);
-  if (!member || member.status === 'removed') return null;
+  if (!member || member.status === "removed") return null;
   const org = await db.getOrgById(orgId);
   return org;
 }
@@ -41,12 +52,16 @@ async function getUserOrg(userId: number, orgId: number) {
  */
 async function requireOrgAdmin(userId: number, orgId: number) {
   const member = await db.getOrgMember(orgId, userId);
-  if (!member || member.status === 'removed') throw new TRPCError({ code: 'NOT_FOUND' });
-  if (member.role !== 'admin') {
-    throw new TRPCError({ code: 'FORBIDDEN', message: 'Apenas administradores da organização podem fazer isso.' });
+  if (!member || member.status === "removed")
+    throw new TRPCError({ code: "NOT_FOUND" });
+  if (member.role !== "admin") {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Apenas administradores da organização podem fazer isso.",
+    });
   }
   const org = await db.getOrgById(orgId);
-  if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
+  if (!org) throw new TRPCError({ code: "NOT_FOUND" });
   return org;
 }
 
@@ -55,7 +70,12 @@ async function requireOrgAdmin(userId: number, orgId: number) {
 // ─────────────────────────────────────────────
 const orgIdSchema = z.object({ orgId: z.number() });
 const authCredentialsSchema = z.object({
-  email: z.string().trim().email().max(320).transform(email => email.toLowerCase()),
+  email: z
+    .string()
+    .trim()
+    .email()
+    .max(320)
+    .transform(email => email.toLowerCase()),
   password: z.string().min(12).max(128),
 });
 const DUMMY_PASSWORD_HASH = `scrypt$${Buffer.alloc(16).toString("base64url")}$${Buffer.alloc(64).toString("base64url")}`;
@@ -79,13 +99,13 @@ const updateOrgSchema = z.object({
 const inviteMemberSchema = z.object({
   orgId: z.number(),
   email: z.string().email(),
-  role: z.enum(['admin', 'member']).default('member'),
+  role: z.enum(["admin", "member"]).default("member"),
 });
 
 const updateMemberSchema = z.object({
   orgId: z.number(),
   userId: z.number(),
-  role: z.enum(['admin', 'member']).optional(),
+  role: z.enum(["admin", "member"]).optional(),
 });
 
 const createContactSchema = z.object({
@@ -104,18 +124,25 @@ const updateContactSchema = z.object({
   firstName: z.string().max(255).optional(),
   lastName: z.string().max(255).optional(),
   phone: z.string().max(50).optional(),
-  status: z.enum(['subscribed', 'unsubscribed', 'bounced', 'complained']).optional(),
+  status: z
+    .enum(["subscribed", "unsubscribed", "bounced", "complained"])
+    .optional(),
 });
 
 const importContactsSchema = z.object({
   orgId: z.number(),
   listId: z.number().optional(),
-  contacts: z.array(z.object({
-    email: z.string().email(),
-    firstName: z.string().optional(),
-    lastName: z.string().optional(),
-    phone: z.string().optional(),
-  })).min(1).max(10000),
+  contacts: z
+    .array(
+      z.object({
+        email: z.string().email(),
+        firstName: z.string().optional(),
+        lastName: z.string().optional(),
+        phone: z.string().optional(),
+      })
+    )
+    .min(1)
+    .max(10000),
 });
 
 const createListSchema = z.object({
@@ -141,7 +168,7 @@ const createCustomFieldSchema = z.object({
   orgId: z.number(),
   name: z.string().min(1).max(100),
   key: z.string().min(1).max(100),
-  type: z.enum(['text', 'number', 'date', 'boolean', 'select']),
+  type: z.enum(["text", "number", "date", "boolean", "select"]),
   options: z.string().optional(),
 });
 
@@ -149,7 +176,7 @@ const createSegmentSchema = z.object({
   orgId: z.number(),
   name: z.string().min(1).max(255),
   rules: z.string(),
-  matchType: z.enum(['all', 'any']),
+  matchType: z.enum(["all", "any"]),
   description: z.string().optional(),
 });
 
@@ -158,7 +185,7 @@ const updateSegmentSchema = z.object({
   id: z.number(),
   name: z.string().min(1).max(255).optional(),
   rules: z.string().optional(),
-  matchType: z.enum(['all', 'any']).optional(),
+  matchType: z.enum(["all", "any"]).optional(),
   description: z.string().optional(),
 });
 
@@ -199,7 +226,7 @@ const createCampaignSchema = z.object({
   isAbTest: z.boolean().optional(),
   abSubjectB: z.string().max(500).optional(),
   abHtmlContentB: z.string().optional(),
-  abWinnerCriteria: z.enum(['open_rate', 'click_rate']).optional(),
+  abWinnerCriteria: z.enum(["open_rate", "click_rate"]).optional(),
   abAutoWinner: z.boolean().optional(),
   abTestPercent: z.number().min(5).max(100).optional(),
   abWaitHours: z.number().min(1).max(168).optional(),
@@ -225,7 +252,7 @@ const updateCampaignSchema = z.object({
   isAbTest: z.boolean().optional(),
   abSubjectB: z.string().max(500).optional(),
   abHtmlContentB: z.string().optional(),
-  abWinnerCriteria: z.enum(['open_rate', 'click_rate']).optional(),
+  abWinnerCriteria: z.enum(["open_rate", "click_rate"]).optional(),
   abAutoWinner: z.boolean().optional(),
   abTestPercent: z.number().min(5).max(100).optional(),
   abWaitHours: z.number().min(1).max(168).optional(),
@@ -235,12 +262,28 @@ const createAutomationSchema = z.object({
   orgId: z.number(),
   name: z.string().min(1).max(255),
   description: z.string().optional(),
-  triggerType: z.enum(['list_subscription', 'email_open', 'link_click', 'specific_date']),
+  triggerType: z.enum([
+    "list_subscription",
+    "email_open",
+    "link_click",
+    "specific_date",
+  ]),
   triggerConfig: z.string(),
-  steps: z.array(z.object({
-    type: z.enum(['send_email', 'wait', 'condition', 'add_tag', 'remove_tag', 'move_to_list']),
-    config: z.string(),
-  })).optional(),
+  steps: z
+    .array(
+      z.object({
+        type: z.enum([
+          "send_email",
+          "wait",
+          "condition",
+          "add_tag",
+          "remove_tag",
+          "move_to_list",
+        ]),
+        config: z.string(),
+      })
+    )
+    .optional(),
 });
 
 const updateAutomationSchema = z.object({
@@ -248,9 +291,11 @@ const updateAutomationSchema = z.object({
   id: z.number(),
   name: z.string().min(1).max(255).optional(),
   description: z.string().optional(),
-  triggerType: z.enum(['list_subscription', 'email_open', 'link_click', 'specific_date']).optional(),
+  triggerType: z
+    .enum(["list_subscription", "email_open", "link_click", "specific_date"])
+    .optional(),
   triggerConfig: z.string().optional(),
-  status: z.enum(['active', 'paused', 'draft']).optional(),
+  status: z.enum(["active", "paused", "draft"]).optional(),
 });
 
 const createSendingDomainSchema = z.object({
@@ -262,16 +307,16 @@ const createSendingDomainSchema = z.object({
 const updateSendingDomainSchema = z.object({
   orgId: z.number(),
   id: z.number(),
-  verificationStatus: z.enum(['pending', 'verified', 'failed']).optional(),
-  dkimStatus: z.enum(['pending', 'verified', 'failed']).optional(),
-  spfStatus: z.enum(['pending', 'verified', 'failed']).optional(),
-  dmarcStatus: z.enum(['pending', 'verified', 'failed']).optional(),
+  verificationStatus: z.enum(["pending", "verified", "failed"]).optional(),
+  dkimStatus: z.enum(["pending", "verified", "failed"]).optional(),
+  spfStatus: z.enum(["pending", "verified", "failed"]).optional(),
+  dmarcStatus: z.enum(["pending", "verified", "failed"]).optional(),
   isDefault: z.boolean().optional(),
 });
 
 const createSmtpConfigSchema = z.object({
   orgId: z.number(),
-  provider: z.enum(['sendgrid', 'mailgun', 'ses', 'smtp', 'mailflow']),
+  provider: z.enum(["sendgrid", "mailgun", "ses", "smtp", "mailflow"]),
   name: z.string().min(1).max(255),
   apiKey: z.string().optional(),
   smtpHost: z.string().max(255).optional(),
@@ -287,7 +332,9 @@ const createSmtpConfigSchema = z.object({
 const updateSmtpConfigSchema = z.object({
   orgId: z.number(),
   id: z.number(),
-  provider: z.enum(['sendgrid', 'mailgun', 'ses', 'smtp', 'mailflow']).optional(),
+  provider: z
+    .enum(["sendgrid", "mailgun", "ses", "smtp", "mailflow"])
+    .optional(),
   name: z.string().min(1).max(255).optional(),
   apiKey: z.string().optional(),
   smtpHost: z.string().max(255).optional(),
@@ -309,46 +356,68 @@ export const appRouter = router({
 
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
-    register: publicProcedure.input(registerSchema).mutation(async ({ ctx, input }) => {
-      const existing = await db.getUserByEmail(input.email);
-      if (existing) throw new TRPCError({ code: "CONFLICT", message: "Já existe uma conta com este e-mail." });
+    register: publicProcedure
+      .input(registerSchema)
+      .mutation(async ({ ctx, input }) => {
+        const existing = await db.getUserByEmail(input.email);
+        if (existing)
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Já existe uma conta com este e-mail.",
+          });
 
-      let user: Awaited<ReturnType<typeof db.createLocalUserAccount>>;
-      try {
-        user = await db.createLocalUserAccount({
-          name: input.name,
-          email: input.email,
-          passwordHash: await hashPassword(input.password),
-        });
-      } catch (error) {
-        if (typeof error === "object" && error !== null && "code" in error && error.code === "ER_DUP_ENTRY") {
-          throw new TRPCError({ code: "CONFLICT", message: "Já existe uma conta com este e-mail." });
+        let user: Awaited<ReturnType<typeof db.createLocalUserAccount>>;
+        try {
+          user = await db.createLocalUserAccount({
+            name: input.name,
+            email: input.email,
+            passwordHash: await hashPassword(input.password),
+          });
+        } catch (error) {
+          if (
+            typeof error === "object" &&
+            error !== null &&
+            "code" in error &&
+            error.code === "ER_DUP_ENTRY"
+          ) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "Já existe uma conta com este e-mail.",
+            });
+          }
+          throw error;
         }
-        throw error;
-      }
 
-      const token = await createSessionToken(user.id);
-      ctx.res.cookie(COOKIE_NAME, token, {
-        ...getSessionCookieOptions(ctx.req),
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-      });
-      return { success: true };
-    }),
-    login: publicProcedure.input(authCredentialsSchema).mutation(async ({ ctx, input }) => {
-      const user = await db.getUserByEmail(input.email);
-      const validPassword = await verifyPassword(input.password, user?.passwordHash ?? DUMMY_PASSWORD_HASH);
-      if (!user || !validPassword) {
-        throw new TRPCError({ code: "UNAUTHORIZED", message: "E-mail ou senha inválidos." });
-      }
+        const token = await createSessionToken(user.id);
+        ctx.res.cookie(COOKIE_NAME, token, {
+          ...getSessionCookieOptions(ctx.req),
+          maxAge: 7 * 24 * 60 * 60 * 1000,
+        });
+        return { success: true };
+      }),
+    login: publicProcedure
+      .input(authCredentialsSchema)
+      .mutation(async ({ ctx, input }) => {
+        const user = await db.getUserByEmail(input.email);
+        const validPassword = await verifyPassword(
+          input.password,
+          user?.passwordHash ?? DUMMY_PASSWORD_HASH
+        );
+        if (!user || !validPassword) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "E-mail ou senha inválidos.",
+          });
+        }
 
-      await db.updateUserLastSignedIn(user.id);
-      const token = await createSessionToken(user.id);
-      ctx.res.cookie(COOKIE_NAME, token, {
-        ...getSessionCookieOptions(ctx.req),
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-      });
-      return { success: true };
-    }),
+        await db.updateUserLastSignedIn(user.id);
+        const token = await createSessionToken(user.id);
+        ctx.res.cookie(COOKIE_NAME, token, {
+          ...getSessionCookieOptions(ctx.req),
+          maxAge: 7 * 24 * 60 * 60 * 1000,
+        });
+        return { success: true };
+      }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
@@ -365,871 +434,1208 @@ export const appRouter = router({
       return orgs.map(o => ({ ...o.org, role: o.member.role }));
     }),
 
-    current: protectedProcedure.input(z.object({ orgId: z.number() })).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND', message: 'Organization not found' });
-      return org;
-    }),
+    current: protectedProcedure
+      .input(z.object({ orgId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org)
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Organization not found",
+          });
+        return org;
+      }),
 
-    create: protectedProcedure.input(createOrgSchema).mutation(async ({ ctx, input }) => {
-      const slug = input.slug || `org-${ctx.user.id}-${Date.now().toString(36)}`;
-      const org = await db.createOrg(input.name, slug, ctx.user.id);
-      await notifyOwner({
-        title: "Nova organização cadastrada no Colabix",
-        content: `A organização "${input.name}" foi criada por ${ctx.user.name || ctx.user.email} (ID: ${ctx.user.id}).`,
-      });
-      return org;
-    }),
+    create: protectedProcedure
+      .input(createOrgSchema)
+      .mutation(async ({ ctx, input }) => {
+        const slug =
+          input.slug || `org-${ctx.user.id}-${Date.now().toString(36)}`;
+        const org = await db.createOrg(input.name, slug, ctx.user.id);
+        await notifyOwner({
+          title: "Nova organização cadastrada no MailFlow",
+          content: `A organização "${input.name}" foi criada por ${ctx.user.name || ctx.user.email} (ID: ${ctx.user.id}).`,
+        });
+        return org;
+      }),
 
-    update: protectedProcedure.input(updateOrgSchema).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const { orgId, ...data } = input;
-      return db.updateOrg(orgId, data);
-    }),
+    update: protectedProcedure
+      .input(updateOrgSchema)
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const { orgId, ...data } = input;
+        return db.updateOrg(orgId, data);
+      }),
 
-    members: protectedProcedure.input(orgIdSchema).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      return db.getOrgMembers(input.orgId);
-    }),
+    members: protectedProcedure
+      .input(orgIdSchema)
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        return db.getOrgMembers(input.orgId);
+      }),
 
-    inviteMember: protectedProcedure.input(inviteMemberSchema).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      // Check if user is admin
-      const member = await db.getOrgMember(input.orgId, ctx.user.id);
-      if (!member || member.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can invite members' });
-      // Find user by email
-      const dbInstance = await db.getDb();
-      if (!dbInstance) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
-      const { users } = await import("../drizzle/schema");
-      const userResult = await dbInstance.select().from(users).where(eq(users.email, input.email)).limit(1);
-      if (userResult.length === 0) {
-        // Create an invited member record with status 'invited'
-        // In production, send an invitation email
-        return { status: 'invited', email: input.email, message: 'Invitation sent. User will be added when they sign up.' };
-      }
-      const invitedUser = userResult[0];
-      return db.addOrgMember(input.orgId, invitedUser.id, input.role, input.email);
-    }),
+    inviteMember: protectedProcedure
+      .input(inviteMemberSchema)
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        // Check if user is admin
+        const member = await db.getOrgMember(input.orgId, ctx.user.id);
+        if (!member || member.role !== "admin")
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Only admins can invite members",
+          });
+        // Find user by email
+        const dbInstance = await db.getDb();
+        if (!dbInstance) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const { users } = await import("../drizzle/schema");
+        const userResult = await dbInstance
+          .select()
+          .from(users)
+          .where(eq(users.email, input.email))
+          .limit(1);
+        if (userResult.length === 0) {
+          // Create an invited member record with status 'invited'
+          // In production, send an invitation email
+          return {
+            status: "invited",
+            email: input.email,
+            message: "Invitation sent. User will be added when they sign up.",
+          };
+        }
+        const invitedUser = userResult[0];
+        return db.addOrgMember(
+          input.orgId,
+          invitedUser.id,
+          input.role,
+          input.email
+        );
+      }),
 
-    updateMember: protectedProcedure.input(updateMemberSchema).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const member = await db.getOrgMember(input.orgId, ctx.user.id);
-      if (!member || member.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can update member roles' });
-      const { userId, ...data } = input;
-      return db.updateOrgMember(input.orgId, userId, data);
-    }),
+    updateMember: protectedProcedure
+      .input(updateMemberSchema)
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const member = await db.getOrgMember(input.orgId, ctx.user.id);
+        if (!member || member.role !== "admin")
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Only admins can update member roles",
+          });
+        const { userId, ...data } = input;
+        return db.updateOrgMember(input.orgId, userId, data);
+      }),
 
-    removeMember: protectedProcedure.input(updateMemberSchema).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const member = await db.getOrgMember(input.orgId, ctx.user.id);
-      if (!member || member.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can remove members' });
-      await db.removeOrgMember(input.orgId, input.userId);
-      return { success: true };
-    }),
+    removeMember: protectedProcedure
+      .input(updateMemberSchema)
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const member = await db.getOrgMember(input.orgId, ctx.user.id);
+        if (!member || member.role !== "admin")
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Only admins can remove members",
+          });
+        await db.removeOrgMember(input.orgId, input.userId);
+        return { success: true };
+      }),
   }),
 
   // ─────────────────────────────────────────────
   // Contacts
   // ─────────────────────────────────────────────
   contacts: router({
-    list: protectedProcedure.input(z.object({
-      orgId: z.number(),
-      limit: z.number().min(1).max(200).default(50),
-      offset: z.number().min(0).default(0),
-      search: z.string().optional(),
-    })).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      return db.getContacts(input.orgId, input.limit, input.offset, input.search);
-    }),
+    list: protectedProcedure
+      .input(
+        z.object({
+          orgId: z.number(),
+          limit: z.number().min(1).max(200).default(50),
+          offset: z.number().min(0).default(0),
+          search: z.string().optional(),
+        })
+      )
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        return db.getContacts(
+          input.orgId,
+          input.limit,
+          input.offset,
+          input.search
+        );
+      }),
 
-    byId: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const contact = await db.getContactById(input.orgId, input.id);
-      if (!contact) throw new TRPCError({ code: 'NOT_FOUND' });
-      const tags = await db.getContactTags(input.id);
-      const customValues = await db.getContactCustomValues(input.id);
-      return { ...contact, tags, customValues };
-    }),
+    byId: protectedProcedure
+      .input(z.object({ orgId: z.number(), id: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const contact = await db.getContactById(input.orgId, input.id);
+        if (!contact) throw new TRPCError({ code: "NOT_FOUND" });
+        const tags = await db.getContactTags(input.id);
+        const customValues = await db.getContactCustomValues(input.id);
+        return { ...contact, tags, customValues };
+      }),
 
-    create: protectedProcedure.input(createContactSchema).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const { listIds, ...contactData } = input;
-      const contact = await db.createContact(input.orgId, contactData);
-      if (contact && listIds) {
-        for (const listId of listIds) {
-          await db.addContactToList(contact.id, listId);
+    create: protectedProcedure
+      .input(createContactSchema)
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const { listIds, ...contactData } = input;
+        const contact = await db.createContact(input.orgId, contactData);
+        if (contact && listIds) {
+          for (const listId of listIds) {
+            await db.addContactToList(contact.id, listId);
+          }
         }
-      }
-      return contact;
-    }),
+        return contact;
+      }),
 
-    update: protectedProcedure.input(updateContactSchema).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const { orgId, id, ...data } = input;
-      return db.updateContact(orgId, id, data);
-    }),
+    update: protectedProcedure
+      .input(updateContactSchema)
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const { orgId, id, ...data } = input;
+        return db.updateContact(orgId, id, data);
+      }),
 
-    delete: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      await db.deleteContact(input.orgId, input.id);
-      return { success: true };
-    }),
+    delete: protectedProcedure
+      .input(z.object({ orgId: z.number(), id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        await db.deleteContact(input.orgId, input.id);
+        return { success: true };
+      }),
 
-    import: protectedProcedure.input(importContactsSchema).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      return db.bulkImportContacts(input.orgId, input.contacts, input.listId);
-    }),
+    import: protectedProcedure
+      .input(importContactsSchema)
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        return db.bulkImportContacts(input.orgId, input.contacts, input.listId);
+      }),
 
-    count: protectedProcedure.input(orgIdSchema).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      return db.getContactCount(input.orgId);
-    }),
+    count: protectedProcedure
+      .input(orgIdSchema)
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        return db.getContactCount(input.orgId);
+      }),
 
-    listAdvanced: protectedProcedure.input(z.object({
-      orgId: z.number(),
-      limit: z.number().min(1).max(200).default(50),
-      offset: z.number().min(0).default(0),
-      search: z.string().optional(),
-      tagIds: z.array(z.number()).optional(),
-      listId: z.number().optional(),
-      status: z.enum(['subscribed', 'unsubscribed', 'bounced', 'complained']).optional(),
-      engagement: z.enum(['opened', 'clicked', 'no_engagement']).optional(),
-    })).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const { orgId, limit, offset, ...filters } = input;
-      return db.getContactsAdvanced(orgId, filters, limit, offset);
-    }),
+    listAdvanced: protectedProcedure
+      .input(
+        z.object({
+          orgId: z.number(),
+          limit: z.number().min(1).max(200).default(50),
+          offset: z.number().min(0).default(0),
+          search: z.string().optional(),
+          tagIds: z.array(z.number()).optional(),
+          listId: z.number().optional(),
+          status: z
+            .enum(["subscribed", "unsubscribed", "bounced", "complained"])
+            .optional(),
+          engagement: z.enum(["opened", "clicked", "no_engagement"]).optional(),
+        })
+      )
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const { orgId, limit, offset, ...filters } = input;
+        return db.getContactsAdvanced(orgId, filters, limit, offset);
+      }),
 
-    profile: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const profile = await db.getContactProfile(input.orgId, input.id);
-      if (!profile) throw new TRPCError({ code: 'NOT_FOUND', message: 'Contato não encontrado' });
-      return profile;
-    }),
+    profile: protectedProcedure
+      .input(z.object({ orgId: z.number(), id: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const profile = await db.getContactProfile(input.orgId, input.id);
+        if (!profile)
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Contato não encontrado",
+          });
+        return profile;
+      }),
 
-    bulkAddTag: protectedProcedure.input(z.object({
-      orgId: z.number(),
-      contactIds: z.array(z.number()).min(1).max(1000),
-      tagId: z.number(),
-    })).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      return db.bulkAddTag(input.orgId, input.contactIds, input.tagId);
-    }),
+    bulkAddTag: protectedProcedure
+      .input(
+        z.object({
+          orgId: z.number(),
+          contactIds: z.array(z.number()).min(1).max(1000),
+          tagId: z.number(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        return db.bulkAddTag(input.orgId, input.contactIds, input.tagId);
+      }),
 
-    bulkAddToList: protectedProcedure.input(z.object({
-      orgId: z.number(),
-      contactIds: z.array(z.number()).min(1).max(1000),
-      listId: z.number(),
-    })).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      return db.bulkAddToList(input.orgId, input.contactIds, input.listId);
-    }),
+    bulkAddToList: protectedProcedure
+      .input(
+        z.object({
+          orgId: z.number(),
+          contactIds: z.array(z.number()).min(1).max(1000),
+          listId: z.number(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        return db.bulkAddToList(input.orgId, input.contactIds, input.listId);
+      }),
 
-    bulkDelete: protectedProcedure.input(z.object({
-      orgId: z.number(),
-      contactIds: z.array(z.number()).min(1).max(1000),
-    })).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      return db.bulkDeleteContacts(input.orgId, input.contactIds);
-    }),
+    bulkDelete: protectedProcedure
+      .input(
+        z.object({
+          orgId: z.number(),
+          contactIds: z.array(z.number()).min(1).max(1000),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        return db.bulkDeleteContacts(input.orgId, input.contactIds);
+      }),
 
-    exportCsv: protectedProcedure.input(z.object({
-      orgId: z.number(),
-      search: z.string().optional(),
-      tagIds: z.array(z.number()).optional(),
-      listId: z.number().optional(),
-      status: z.enum(['subscribed', 'unsubscribed', 'bounced', 'complained']).optional(),
-      engagement: z.enum(['opened', 'clicked', 'no_engagement']).optional(),
-    })).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const { orgId, ...filters } = input;
-      const csv = await db.exportContactsCsv(orgId, filters);
-      return { csv, filename: `contatos-${new Date().toISOString().slice(0, 10)}.csv` };
-    }),
+    exportCsv: protectedProcedure
+      .input(
+        z.object({
+          orgId: z.number(),
+          search: z.string().optional(),
+          tagIds: z.array(z.number()).optional(),
+          listId: z.number().optional(),
+          status: z
+            .enum(["subscribed", "unsubscribed", "bounced", "complained"])
+            .optional(),
+          engagement: z.enum(["opened", "clicked", "no_engagement"]).optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const { orgId, ...filters } = input;
+        const csv = await db.exportContactsCsv(orgId, filters);
+        return {
+          csv,
+          filename: `contatos-${new Date().toISOString().slice(0, 10)}.csv`,
+        };
+      }),
   }),
 
   // ─────────────────────────────────────────────
   // Lists
   // ─────────────────────────────────────────────
   lists: router({
-    list: protectedProcedure.input(orgIdSchema).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const lists = await db.getLists(input.orgId);
-      const listsWithCounts = await Promise.all(
-        lists.map(async l => ({ ...l, memberCount: await db.getListMemberCount(l.id) }))
-      );
-      return listsWithCounts;
-    }),
+    list: protectedProcedure
+      .input(orgIdSchema)
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const lists = await db.getLists(input.orgId);
+        const listsWithCounts = await Promise.all(
+          lists.map(async l => ({
+            ...l,
+            memberCount: await db.getListMemberCount(l.id),
+          }))
+        );
+        return listsWithCounts;
+      }),
 
-    byId: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const list = await db.getListById(input.orgId, input.id);
-      if (!list) throw new TRPCError({ code: 'NOT_FOUND' });
-      return { ...list, memberCount: await db.getListMemberCount(input.id) };
-    }),
+    byId: protectedProcedure
+      .input(z.object({ orgId: z.number(), id: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const list = await db.getListById(input.orgId, input.id);
+        if (!list) throw new TRPCError({ code: "NOT_FOUND" });
+        return { ...list, memberCount: await db.getListMemberCount(input.id) };
+      }),
 
-    create: protectedProcedure.input(createListSchema).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      return db.createList(input.orgId, input.name, input.description);
-    }),
+    create: protectedProcedure
+      .input(createListSchema)
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        return db.createList(input.orgId, input.name, input.description);
+      }),
 
-    update: protectedProcedure.input(updateListSchema).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const { orgId, id, ...data } = input;
-      return db.updateList(orgId, id, data);
-    }),
+    update: protectedProcedure
+      .input(updateListSchema)
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const { orgId, id, ...data } = input;
+        return db.updateList(orgId, id, data);
+      }),
 
-    delete: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      await db.deleteList(input.orgId, input.id);
-      return { success: true };
-    }),
+    delete: protectedProcedure
+      .input(z.object({ orgId: z.number(), id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        await db.deleteList(input.orgId, input.id);
+        return { success: true };
+      }),
 
-    members: protectedProcedure.input(z.object({
-      orgId: z.number(),
-      listId: z.number(),
-      limit: z.number().min(1).max(200).default(50),
-      offset: z.number().min(0).default(0),
-    })).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      return db.getListMembers(input.orgId, input.listId, input.limit, input.offset);
-    }),
+    members: protectedProcedure
+      .input(
+        z.object({
+          orgId: z.number(),
+          listId: z.number(),
+          limit: z.number().min(1).max(200).default(50),
+          offset: z.number().min(0).default(0),
+        })
+      )
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        return db.getListMembers(
+          input.orgId,
+          input.listId,
+          input.limit,
+          input.offset
+        );
+      }),
 
-    addContact: protectedProcedure.input(z.object({
-      orgId: z.number(),
-      contactId: z.number(),
-      listId: z.number(),
-    })).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      await db.addContactToList(input.contactId, input.listId);
-      return { success: true };
-    }),
+    addContact: protectedProcedure
+      .input(
+        z.object({
+          orgId: z.number(),
+          contactId: z.number(),
+          listId: z.number(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        await db.addContactToList(input.contactId, input.listId);
+        return { success: true };
+      }),
 
-    removeContact: protectedProcedure.input(z.object({
-      orgId: z.number(),
-      contactId: z.number(),
-      listId: z.number(),
-    })).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      await db.removeContactFromList(input.contactId, input.listId);
-      return { success: true };
-    }),
+    removeContact: protectedProcedure
+      .input(
+        z.object({
+          orgId: z.number(),
+          contactId: z.number(),
+          listId: z.number(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        await db.removeContactFromList(input.contactId, input.listId);
+        return { success: true };
+      }),
   }),
 
   // ─────────────────────────────────────────────
   // Tags
   // ─────────────────────────────────────────────
   tags: router({
-    list: protectedProcedure.input(orgIdSchema).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      return db.getTags(input.orgId);
-    }),
+    list: protectedProcedure
+      .input(orgIdSchema)
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        return db.getTags(input.orgId);
+      }),
 
-    create: protectedProcedure.input(createTagSchema).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      return db.createTag(input.orgId, input.name, input.color);
-    }),
+    create: protectedProcedure
+      .input(createTagSchema)
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        return db.createTag(input.orgId, input.name, input.color);
+      }),
 
-    delete: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      await db.deleteTag(input.orgId, input.id);
-      return { success: true };
-    }),
+    delete: protectedProcedure
+      .input(z.object({ orgId: z.number(), id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        await db.deleteTag(input.orgId, input.id);
+        return { success: true };
+      }),
 
-    addToContact: protectedProcedure.input(z.object({
-      orgId: z.number(),
-      contactId: z.number(),
-      tagId: z.number(),
-    })).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      await db.addTagToContact(input.contactId, input.tagId);
-      return { success: true };
-    }),
+    addToContact: protectedProcedure
+      .input(
+        z.object({
+          orgId: z.number(),
+          contactId: z.number(),
+          tagId: z.number(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        await db.addTagToContact(input.contactId, input.tagId);
+        return { success: true };
+      }),
 
-    removeFromContact: protectedProcedure.input(z.object({
-      orgId: z.number(),
-      contactId: z.number(),
-      tagId: z.number(),
-    })).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      await db.removeTagFromContact(input.contactId, input.tagId);
-      return { success: true };
-    }),
+    removeFromContact: protectedProcedure
+      .input(
+        z.object({
+          orgId: z.number(),
+          contactId: z.number(),
+          tagId: z.number(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        await db.removeTagFromContact(input.contactId, input.tagId);
+        return { success: true };
+      }),
   }),
 
   // ─────────────────────────────────────────────
   // Custom Fields
   // ─────────────────────────────────────────────
   customFields: router({
-    list: protectedProcedure.input(orgIdSchema).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      return db.getCustomFields(input.orgId);
-    }),
+    list: protectedProcedure
+      .input(orgIdSchema)
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        return db.getCustomFields(input.orgId);
+      }),
 
-    create: protectedProcedure.input(createCustomFieldSchema).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      return db.createCustomField(input.orgId, input.name, input.key, input.type, input.options);
-    }),
+    create: protectedProcedure
+      .input(createCustomFieldSchema)
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        return db.createCustomField(
+          input.orgId,
+          input.name,
+          input.key,
+          input.type,
+          input.options
+        );
+      }),
 
-    delete: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      await db.deleteCustomField(input.orgId, input.id);
-      return { success: true };
-    }),
+    delete: protectedProcedure
+      .input(z.object({ orgId: z.number(), id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        await db.deleteCustomField(input.orgId, input.id);
+        return { success: true };
+      }),
   }),
 
   // ─────────────────────────────────────────────
   // Segments
   // ─────────────────────────────────────────────
   segments: router({
-    list: protectedProcedure.input(orgIdSchema).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const segments = await db.getSegments(input.orgId);
-      const segmentsWithCounts = await Promise.all(
-        segments.map(async s => ({ ...s, contactCount: await db.getSegmentContactCount(input.orgId, s.id) }))
-      );
-      return segmentsWithCounts;
-    }),
+    list: protectedProcedure
+      .input(orgIdSchema)
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const segments = await db.getSegments(input.orgId);
+        const segmentsWithCounts = await Promise.all(
+          segments.map(async s => ({
+            ...s,
+            contactCount: await db.getSegmentContactCount(input.orgId, s.id),
+          }))
+        );
+        return segmentsWithCounts;
+      }),
 
-    byId: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const segment = await db.getSegmentById(input.orgId, input.id);
-      if (!segment) throw new TRPCError({ code: 'NOT_FOUND' });
-      return { ...segment, contactCount: await db.getSegmentContactCount(input.orgId, input.id) };
-    }),
+    byId: protectedProcedure
+      .input(z.object({ orgId: z.number(), id: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const segment = await db.getSegmentById(input.orgId, input.id);
+        if (!segment) throw new TRPCError({ code: "NOT_FOUND" });
+        return {
+          ...segment,
+          contactCount: await db.getSegmentContactCount(input.orgId, input.id),
+        };
+      }),
 
-    create: protectedProcedure.input(createSegmentSchema).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      return db.createSegment(input.orgId, input.name, input.rules, input.matchType, input.description);
-    }),
+    create: protectedProcedure
+      .input(createSegmentSchema)
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        return db.createSegment(
+          input.orgId,
+          input.name,
+          input.rules,
+          input.matchType,
+          input.description
+        );
+      }),
 
-    update: protectedProcedure.input(updateSegmentSchema).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const { orgId, id, ...data } = input;
-      return db.updateSegment(orgId, id, data);
-    }),
+    update: protectedProcedure
+      .input(updateSegmentSchema)
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const { orgId, id, ...data } = input;
+        return db.updateSegment(orgId, id, data);
+      }),
 
-    delete: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      await db.deleteSegment(input.orgId, input.id);
-      return { success: true };
-    }),
+    delete: protectedProcedure
+      .input(z.object({ orgId: z.number(), id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        await db.deleteSegment(input.orgId, input.id);
+        return { success: true };
+      }),
   }),
 
   // ─────────────────────────────────────────────
   // Email Templates
   // ─────────────────────────────────────────────
   templates: router({
-    list: protectedProcedure.input(orgIdSchema).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      return db.getTemplates(input.orgId);
-    }),
+    list: protectedProcedure
+      .input(orgIdSchema)
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        return db.getTemplates(input.orgId);
+      }),
 
-    byId: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const template = await db.getTemplateById(input.orgId, input.id);
-      if (!template) throw new TRPCError({ code: 'NOT_FOUND' });
-      return template;
-    }),
+    byId: protectedProcedure
+      .input(z.object({ orgId: z.number(), id: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const template = await db.getTemplateById(input.orgId, input.id);
+        if (!template) throw new TRPCError({ code: "NOT_FOUND" });
+        return template;
+      }),
 
-    create: protectedProcedure.input(createTemplateSchema).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      return db.createTemplate(input.orgId, input);
-    }),
+    create: protectedProcedure
+      .input(createTemplateSchema)
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        return db.createTemplate(input.orgId, input);
+      }),
 
-    update: protectedProcedure.input(updateTemplateSchema).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const { orgId, id, ...data } = input;
-      return db.updateTemplate(orgId, id, data);
-    }),
+    update: protectedProcedure
+      .input(updateTemplateSchema)
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const { orgId, id, ...data } = input;
+        return db.updateTemplate(orgId, id, data);
+      }),
 
-    delete: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      await db.deleteTemplate(input.orgId, input.id);
-      return { success: true };
-    }),
+    delete: protectedProcedure
+      .input(z.object({ orgId: z.number(), id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        await db.deleteTemplate(input.orgId, input.id);
+        return { success: true };
+      }),
   }),
 
   // ─────────────────────────────────────────────
   // Campaigns
   // ─────────────────────────────────────────────
   campaigns: router({
-    list: protectedProcedure.input(z.object({
-      orgId: z.number(),
-      limit: z.number().min(1).max(200).default(50),
-      offset: z.number().min(0).default(0),
-    })).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      return db.getCampaigns(input.orgId, input.limit, input.offset);
-    }),
+    list: protectedProcedure
+      .input(
+        z.object({
+          orgId: z.number(),
+          limit: z.number().min(1).max(200).default(50),
+          offset: z.number().min(0).default(0),
+        })
+      )
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        return db.getCampaigns(input.orgId, input.limit, input.offset);
+      }),
 
-    byId: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const campaign = await db.getCampaignById(input.orgId, input.id);
-      if (!campaign) throw new TRPCError({ code: 'NOT_FOUND' });
-      return campaign;
-    }),
+    byId: protectedProcedure
+      .input(z.object({ orgId: z.number(), id: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const campaign = await db.getCampaignById(input.orgId, input.id);
+        if (!campaign) throw new TRPCError({ code: "NOT_FOUND" });
+        return campaign;
+      }),
 
-    create: protectedProcedure.input(createCampaignSchema).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      return db.createCampaign(input.orgId, { ...input, createdBy: ctx.user.id });
-    }),
-
-    update: protectedProcedure.input(updateCampaignSchema).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const { orgId, id, ...data } = input;
-      return db.updateCampaign(orgId, id, data);
-    }),
-
-    delete: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).mutation(async ({ ctx, input }) => {
-      await requireOrgAdmin(ctx.user.id, input.orgId);
-      await db.deleteCampaign(input.orgId, input.id);
-      return { success: true };
-    }),
-
-    sends: protectedProcedure.input(z.object({
-      orgId: z.number(),
-      campaignId: z.number(),
-      limit: z.number().min(1).max(200).default(50),
-      offset: z.number().min(0).default(0),
-    })).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      return db.getCampaignSends(input.campaignId, input.limit, input.offset);
-    }),
-
-    events: protectedProcedure.input(z.object({
-      orgId: z.number(),
-      campaignId: z.number(),
-      limit: z.number().min(1).max(500).default(100),
-      offset: z.number().min(0).default(0),
-    })).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      return db.getCampaignEvents(input.campaignId, input.limit, input.offset);
-    }),
-
-    links: protectedProcedure.input(z.object({ orgId: z.number(), campaignId: z.number() })).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      return db.getCampaignLinks(input.campaignId);
-    }),
-
-    schedule: protectedProcedure.input(z.object({
-      orgId: z.number(),
-      id: z.number(),
-      scheduledAt: z.date(),
-    })).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const campaign = await db.getCampaignById(input.orgId, input.id);
-      if (!campaign) throw new TRPCError({ code: 'NOT_FOUND' });
-      if (campaign.status === 'sent' || campaign.status === 'sending') {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Esta campanha já foi enviada.' });
-      }
-      if (campaign.isAbTest && !campaign.abSubjectB) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Teste A/B ativado: defina o assunto da variante B antes de agendar.' });
-      }
-      const runAt = input.scheduledAt;
-      if (runAt.getTime() < Date.now() + 60_000) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Escolha uma data/hora pelo menos 1 minuto no futuro.' });
-      }
-
-      return db.updateCampaign(input.orgId, input.id, {
-        status: 'scheduled',
-        scheduledAt: runAt,
-        sendScheduleCronTaskUid: null,
-      });
-    }),
-
-    unschedule: protectedProcedure.input(z.object({
-      orgId: z.number(),
-      id: z.number(),
-    })).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const campaign = await db.getCampaignById(input.orgId, input.id);
-      if (!campaign) throw new TRPCError({ code: 'NOT_FOUND' });
-      if (campaign.status !== 'scheduled') {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Esta campanha não está agendada.' });
-      }
-      return db.updateCampaign(input.orgId, input.id, {
-        status: 'draft',
-        scheduledAt: null,
-        sendScheduleCronTaskUid: null,
-      });
-    }),
-
-    send: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).mutation(async ({ ctx, input }) => {
-      await requireOrgAdmin(ctx.user.id, input.orgId);
-      const campaign = await db.getCampaignById(input.orgId, input.id);
-      if (!campaign) throw new TRPCError({ code: 'NOT_FOUND' });
-      if (campaign.isAbTest && !campaign.abSubjectB) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Teste A/B ativado: defina o assunto da variante B antes de enviar.' });
-      }
-      // Atomic claim: a double click or a concurrent request cannot send twice.
-      const claimed = await db.claimCampaignForSending(input.orgId, input.id);
-      if (!claimed) {
-        throw new TRPCError({ code: 'CONFLICT', message: 'Esta campanha já está sendo enviada ou já foi enviada.' });
-      }
-
-      const result = await sendCampaignAndPersist(campaign);
-      const failedAll = result.totalRecipients > 0 && result.sent === 0;
-
-      if (result.failed > 0) {
-        await notifyOwner({
-          title: 'Colabix: falha no disparo de campanha',
-          content: `Campanha "${campaign.name}" (org ${input.orgId}): ${result.failed} de ${result.totalRecipients} envios falharam.${result.firstError ? ` Primeiro erro: ${result.firstError}` : ''}`,
+    create: protectedProcedure
+      .input(createCampaignSchema)
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        return db.createCampaign(input.orgId, {
+          ...input,
+          createdBy: ctx.user.id,
         });
-      }
+      }),
 
-      const winnerScheduled = !failedAll
-        && campaign.isAbTest
-        && campaign.abAutoWinner
-        && result.heldForWinner > 0;
+    update: protectedProcedure
+      .input(updateCampaignSchema)
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const { orgId, id, ...data } = input;
+        return db.updateCampaign(orgId, id, data);
+      }),
 
-      return {
-        success: !failedAll,
-        message: result.sandbox
-          ? 'Disparo processado em modo sandbox (nenhum provedor SMTP configurado — configure em Configurações SMTP para envio real)'
-          : 'Campaign send initiated',
-        totalRecipients: result.totalRecipients,
-        sent: result.sent,
-        failed: result.failed,
-        variantACount: result.variantACount,
-        variantBCount: result.variantBCount,
-        heldForWinner: result.heldForWinner,
-        winnerScheduled,
-        sandbox: result.sandbox,
-      };
-    }),
+    delete: protectedProcedure
+      .input(z.object({ orgId: z.number(), id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        await requireOrgAdmin(ctx.user.id, input.orgId);
+        await db.deleteCampaign(input.orgId, input.id);
+        return { success: true };
+      }),
 
-    abResults: protectedProcedure.input(z.object({ orgId: z.number(), campaignId: z.number() })).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const campaign = await db.getCampaignById(input.orgId, input.campaignId);
-      if (!campaign) throw new TRPCError({ code: 'NOT_FOUND' });
-      if (!campaign.isAbTest) return null;
-      const results = await db.getAbTestResults(input.campaignId);
-      const criteria = campaign.abWinnerCriteria || 'open_rate';
-      const rateOf = (v: typeof results.a) => {
-        if (v.sent === 0) return 0;
-        return criteria === 'open_rate' ? v.uniqueOpens / v.sent : v.uniqueClicks / v.sent;
-      };
-      const rateA = rateOf(results.a);
-      const rateB = rateOf(results.b);
-      let winner: 'a' | 'b' | 'tie' | null = null;
-      if (results.a.sent > 0 || results.b.sent > 0) {
-        winner = rateA > rateB ? 'a' : rateB > rateA ? 'b' : 'tie';
-      }
-      return { ...results, criteria, rateA, rateB, winner };
-    }),
+    sends: protectedProcedure
+      .input(
+        z.object({
+          orgId: z.number(),
+          campaignId: z.number(),
+          limit: z.number().min(1).max(200).default(50),
+          offset: z.number().min(0).default(0),
+        })
+      )
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        return db.getCampaignSends(input.campaignId, input.limit, input.offset);
+      }),
 
-    sendTest: protectedProcedure.input(z.object({
-      orgId: z.number(),
-      id: z.number(),
-      to: z.string().email(),
-      variant: z.enum(['a', 'b']).default('a'),
-    })).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const campaign = await db.getCampaignById(input.orgId, input.id);
-      if (!campaign) throw new TRPCError({ code: 'NOT_FOUND' });
-      if (!campaign.subject) throw new TRPCError({ code: 'BAD_REQUEST', message: 'A campanha precisa de um assunto para enviar o teste' });
-      const result = await sendTestEmail(campaign, input.to, input.variant);
-      if (!result.delivered) {
-        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: result.error || 'Falha ao enviar e-mail de teste' });
-      }
-      return { delivered: true, sandbox: result.sandbox };
-    }),
+    events: protectedProcedure
+      .input(
+        z.object({
+          orgId: z.number(),
+          campaignId: z.number(),
+          limit: z.number().min(1).max(500).default(100),
+          offset: z.number().min(0).default(0),
+        })
+      )
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        return db.getCampaignEvents(
+          input.campaignId,
+          input.limit,
+          input.offset
+        );
+      }),
 
-    duplicate: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const copy = await db.duplicateCampaign(input.orgId, input.id);
-      if (!copy) throw new TRPCError({ code: 'NOT_FOUND' });
-      return copy;
-    }),
+    links: protectedProcedure
+      .input(z.object({ orgId: z.number(), campaignId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        return db.getCampaignLinks(input.campaignId);
+      }),
 
-    comparisonReport: protectedProcedure.input(z.object({
-      orgId: z.number(),
-      limit: z.number().min(2).max(50).default(20),
-    })).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      return db.getCampaignComparisonReport(input.orgId, input.limit);
-    }),
+    schedule: protectedProcedure
+      .input(
+        z.object({
+          orgId: z.number(),
+          id: z.number(),
+          scheduledAt: z.date(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const campaign = await db.getCampaignById(input.orgId, input.id);
+        if (!campaign) throw new TRPCError({ code: "NOT_FOUND" });
+        if (campaign.status === "sent" || campaign.status === "sending") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Esta campanha já foi enviada.",
+          });
+        }
+        if (campaign.isAbTest && !campaign.abSubjectB) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Teste A/B ativado: defina o assunto da variante B antes de agendar.",
+          });
+        }
+        const runAt = input.scheduledAt;
+        if (runAt.getTime() < Date.now() + 60_000) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Escolha uma data/hora pelo menos 1 minuto no futuro.",
+          });
+        }
+
+        return db.updateCampaign(input.orgId, input.id, {
+          status: "scheduled",
+          scheduledAt: runAt,
+        });
+      }),
+
+    unschedule: protectedProcedure
+      .input(
+        z.object({
+          orgId: z.number(),
+          id: z.number(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const campaign = await db.getCampaignById(input.orgId, input.id);
+        if (!campaign) throw new TRPCError({ code: "NOT_FOUND" });
+        if (campaign.status !== "scheduled") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Esta campanha não está agendada.",
+          });
+        }
+        return db.updateCampaign(input.orgId, input.id, {
+          status: "draft",
+          scheduledAt: null,
+        });
+      }),
+
+    send: protectedProcedure
+      .input(z.object({ orgId: z.number(), id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        await requireOrgAdmin(ctx.user.id, input.orgId);
+        const campaign = await db.getCampaignById(input.orgId, input.id);
+        if (!campaign) throw new TRPCError({ code: "NOT_FOUND" });
+        if (campaign.isAbTest && !campaign.abSubjectB) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Teste A/B ativado: defina o assunto da variante B antes de enviar.",
+          });
+        }
+        // Atomic claim: a double click or a concurrent request cannot send twice.
+        const claimed = await db.claimCampaignForSending(input.orgId, input.id);
+        if (!claimed) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Esta campanha já está sendo enviada ou já foi enviada.",
+          });
+        }
+
+        const result = await sendCampaignAndPersist(campaign);
+        const failedAll = result.totalRecipients > 0 && result.sent === 0;
+
+        if (result.failed > 0) {
+          await notifyOwner({
+            title: "MailFlow: falha no disparo de campanha",
+            content: `Campanha "${campaign.name}" (org ${input.orgId}): ${result.failed} de ${result.totalRecipients} envios falharam.${result.firstError ? ` Primeiro erro: ${result.firstError}` : ""}`,
+          });
+        }
+
+        const winnerScheduled =
+          !failedAll &&
+          campaign.isAbTest &&
+          campaign.abAutoWinner &&
+          result.heldForWinner > 0;
+
+        return {
+          success: !failedAll,
+          message: result.sandbox
+            ? "Disparo processado em modo sandbox (nenhum provedor SMTP configurado — configure em Configurações SMTP para envio real)"
+            : "Campaign send initiated",
+          totalRecipients: result.totalRecipients,
+          sent: result.sent,
+          failed: result.failed,
+          variantACount: result.variantACount,
+          variantBCount: result.variantBCount,
+          heldForWinner: result.heldForWinner,
+          winnerScheduled,
+          sandbox: result.sandbox,
+        };
+      }),
+
+    abResults: protectedProcedure
+      .input(z.object({ orgId: z.number(), campaignId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const campaign = await db.getCampaignById(
+          input.orgId,
+          input.campaignId
+        );
+        if (!campaign) throw new TRPCError({ code: "NOT_FOUND" });
+        if (!campaign.isAbTest) return null;
+        const results = await db.getAbTestResults(input.campaignId);
+        const criteria = campaign.abWinnerCriteria || "open_rate";
+        const rateOf = (v: typeof results.a) => {
+          if (v.sent === 0) return 0;
+          return criteria === "open_rate"
+            ? v.uniqueOpens / v.sent
+            : v.uniqueClicks / v.sent;
+        };
+        const rateA = rateOf(results.a);
+        const rateB = rateOf(results.b);
+        let winner: "a" | "b" | "tie" | null = null;
+        if (results.a.sent > 0 || results.b.sent > 0) {
+          winner = rateA > rateB ? "a" : rateB > rateA ? "b" : "tie";
+        }
+        return { ...results, criteria, rateA, rateB, winner };
+      }),
+
+    sendTest: protectedProcedure
+      .input(
+        z.object({
+          orgId: z.number(),
+          id: z.number(),
+          to: z.string().email(),
+          variant: z.enum(["a", "b"]).default("a"),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const campaign = await db.getCampaignById(input.orgId, input.id);
+        if (!campaign) throw new TRPCError({ code: "NOT_FOUND" });
+        if (!campaign.subject)
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "A campanha precisa de um assunto para enviar o teste",
+          });
+        const result = await sendTestEmail(campaign, input.to, input.variant);
+        if (!result.delivered) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: result.error || "Falha ao enviar e-mail de teste",
+          });
+        }
+        return { delivered: true, sandbox: result.sandbox };
+      }),
+
+    duplicate: protectedProcedure
+      .input(z.object({ orgId: z.number(), id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const copy = await db.duplicateCampaign(input.orgId, input.id);
+        if (!copy) throw new TRPCError({ code: "NOT_FOUND" });
+        return copy;
+      }),
+
+    comparisonReport: protectedProcedure
+      .input(
+        z.object({
+          orgId: z.number(),
+          limit: z.number().min(2).max(50).default(20),
+        })
+      )
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        return db.getCampaignComparisonReport(input.orgId, input.limit);
+      }),
   }),
 
   // ─────────────────────────────────────────────
   // Automations
   // ─────────────────────────────────────────────
   automations: router({
-    list: protectedProcedure.input(orgIdSchema).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      return db.getAutomations(input.orgId);
-    }),
+    list: protectedProcedure
+      .input(orgIdSchema)
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        return db.getAutomations(input.orgId);
+      }),
 
-    byId: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const automation = await db.getAutomationById(input.orgId, input.id);
-      if (!automation) throw new TRPCError({ code: 'NOT_FOUND' });
-      const steps = await db.getAutomationSteps(input.id);
-      return { ...automation, steps };
-    }),
+    byId: protectedProcedure
+      .input(z.object({ orgId: z.number(), id: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const automation = await db.getAutomationById(input.orgId, input.id);
+        if (!automation) throw new TRPCError({ code: "NOT_FOUND" });
+        const steps = await db.getAutomationSteps(input.id);
+        return { ...automation, steps };
+      }),
 
-    create: protectedProcedure.input(createAutomationSchema).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const { steps, ...autoData } = input;
-      const automation = await db.createAutomation(input.orgId, autoData);
-      if (automation && steps) {
-        for (let i = 0; i < steps.length; i++) {
-          await db.createAutomationStep(automation.id, i, steps[i].type, steps[i].config);
+    create: protectedProcedure
+      .input(createAutomationSchema)
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const { steps, ...autoData } = input;
+        const automation = await db.createAutomation(input.orgId, autoData);
+        if (automation && steps) {
+          for (let i = 0; i < steps.length; i++) {
+            await db.createAutomationStep(
+              automation.id,
+              i,
+              steps[i].type,
+              steps[i].config
+            );
+          }
         }
-      }
-      return automation;
-    }),
+        return automation;
+      }),
 
-    update: protectedProcedure.input(updateAutomationSchema).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const { orgId, id, ...data } = input;
-      return db.updateAutomation(orgId, id, data);
-    }),
+    update: protectedProcedure
+      .input(updateAutomationSchema)
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const { orgId, id, ...data } = input;
+        return db.updateAutomation(orgId, id, data);
+      }),
 
-    delete: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      await db.deleteAutomation(input.orgId, input.id);
-      return { success: true };
-    }),
+    delete: protectedProcedure
+      .input(z.object({ orgId: z.number(), id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        await db.deleteAutomation(input.orgId, input.id);
+        return { success: true };
+      }),
 
-    steps: protectedProcedure.input(z.object({ orgId: z.number(), automationId: z.number() })).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      return db.getAutomationSteps(input.automationId);
-    }),
+    steps: protectedProcedure
+      .input(z.object({ orgId: z.number(), automationId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        return db.getAutomationSteps(input.automationId);
+      }),
 
-    addStep: protectedProcedure.input(z.object({
-      orgId: z.number(),
-      automationId: z.number(),
-      type: z.enum(['send_email', 'wait', 'condition', 'add_tag', 'remove_tag', 'move_to_list']),
-      config: z.string(),
-      stepOrder: z.number(),
-    })).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      return db.createAutomationStep(input.automationId, input.stepOrder, input.type, input.config);
-    }),
+    addStep: protectedProcedure
+      .input(
+        z.object({
+          orgId: z.number(),
+          automationId: z.number(),
+          type: z.enum([
+            "send_email",
+            "wait",
+            "condition",
+            "add_tag",
+            "remove_tag",
+            "move_to_list",
+          ]),
+          config: z.string(),
+          stepOrder: z.number(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        return db.createAutomationStep(
+          input.automationId,
+          input.stepOrder,
+          input.type,
+          input.config
+        );
+      }),
 
-    removeStep: protectedProcedure.input(z.object({ orgId: z.number(), stepId: z.number() })).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      await db.deleteAutomationStep(input.stepId);
-      return { success: true };
-    }),
+    removeStep: protectedProcedure
+      .input(z.object({ orgId: z.number(), stepId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        await db.deleteAutomationStep(input.stepId);
+        return { success: true };
+      }),
   }),
 
   // ─────────────────────────────────────────────
   // Sending Domains
   // ─────────────────────────────────────────────
   sendingDomains: router({
-    list: protectedProcedure.input(orgIdSchema).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      return db.getSendingDomains(input.orgId);
-    }),
+    list: protectedProcedure
+      .input(orgIdSchema)
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        return db.getSendingDomains(input.orgId);
+      }),
 
-    byId: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const domain = await db.getSendingDomainById(input.orgId, input.id);
-      if (!domain) throw new TRPCError({ code: 'NOT_FOUND' });
-      return domain;
-    }),
+    byId: protectedProcedure
+      .input(z.object({ orgId: z.number(), id: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const domain = await db.getSendingDomainById(input.orgId, input.id);
+        if (!domain) throw new TRPCError({ code: "NOT_FOUND" });
+        return domain;
+      }),
 
-    create: protectedProcedure.input(createSendingDomainSchema).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      return db.createSendingDomain(input.orgId, input.domain, input.dkimSelector);
-    }),
+    create: protectedProcedure
+      .input(createSendingDomainSchema)
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        return db.createSendingDomain(
+          input.orgId,
+          input.domain,
+          input.dkimSelector
+        );
+      }),
 
-    update: protectedProcedure.input(updateSendingDomainSchema).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const { orgId, id, ...data } = input;
-      return db.updateSendingDomain(orgId, id, data);
-    }),
+    update: protectedProcedure
+      .input(updateSendingDomainSchema)
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const { orgId, id, ...data } = input;
+        return db.updateSendingDomain(orgId, id, data);
+      }),
 
-    delete: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      await db.deleteSendingDomain(input.orgId, input.id);
-      return { success: true };
-    }),
+    delete: protectedProcedure
+      .input(z.object({ orgId: z.number(), id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        await db.deleteSendingDomain(input.orgId, input.id);
+        return { success: true };
+      }),
 
-    dnsRecords: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const domain = await db.getSendingDomainById(input.orgId, input.id);
-      if (!domain) throw new TRPCError({ code: 'NOT_FOUND' });
-      // Generate DNS instructions
-      const selector = domain.dkimSelector || 'mailflow';
-      return {
-        spf: {
-          type: 'TXT',
-          host: domain.domain,
-          value: `v=spf1 include:mailflow.com ~all`,
-          status: domain.spfStatus,
-        },
-        dkim: {
-          type: 'TXT',
-          host: `${selector}._domainkey.${domain.domain}`,
-          value: domain.dkimPublicKey || 'v=DKIM1; k=rsa; p=YOUR_PUBLIC_KEY',
-          status: domain.dkimStatus,
-        },
-        dmarc: {
-          type: 'TXT',
-          host: `_dmarc.${domain.domain}`,
-          value: `v=DMARC1; p=quarantine; rua=mailto:dmarc@${domain.domain}; ruf=mailto:dmarc@${domain.domain}; fo=1`,
-          status: domain.dmarcStatus,
-        },
-      };
-    }),
+    dnsRecords: protectedProcedure
+      .input(z.object({ orgId: z.number(), id: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const domain = await db.getSendingDomainById(input.orgId, input.id);
+        if (!domain) throw new TRPCError({ code: "NOT_FOUND" });
+        // Generate DNS instructions
+        const selector = domain.dkimSelector || "mailflow";
+        return {
+          spf: {
+            type: "TXT",
+            host: domain.domain,
+            value: `v=spf1 include:mailflow.com ~all`,
+            status: domain.spfStatus,
+          },
+          dkim: {
+            type: "TXT",
+            host: `${selector}._domainkey.${domain.domain}`,
+            value: domain.dkimPublicKey || "v=DKIM1; k=rsa; p=YOUR_PUBLIC_KEY",
+            status: domain.dkimStatus,
+          },
+          dmarc: {
+            type: "TXT",
+            host: `_dmarc.${domain.domain}`,
+            value: `v=DMARC1; p=quarantine; rua=mailto:dmarc@${domain.domain}; ruf=mailto:dmarc@${domain.domain}; fo=1`,
+            status: domain.dmarcStatus,
+          },
+        };
+      }),
 
-    verify: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).mutation(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const domain = await db.getSendingDomainById(input.orgId, input.id);
-      if (!domain) throw new TRPCError({ code: 'NOT_FOUND' });
+    verify: protectedProcedure
+      .input(z.object({ orgId: z.number(), id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const domain = await db.getSendingDomainById(input.orgId, input.id);
+        if (!domain) throw new TRPCError({ code: "NOT_FOUND" });
 
-      // Live DNS resolution of SPF, DKIM and DMARC TXT records,
-      // comparing against the platform-required SPF include and the
-      // domain's expected DKIM public key when available.
-      const result = await verifyDomainDns(domain.domain, domain.dkimSelector || 'mailflow', domain.dkimPublicKey);
+        // Live DNS resolution of SPF, DKIM and DMARC TXT records,
+        // comparing against the platform-required SPF include and the
+        // domain's expected DKIM public key when available.
+        const result = await verifyDomainDns(
+          domain.domain,
+          domain.dkimSelector || "mailflow",
+          domain.dkimPublicKey
+        );
 
-      await db.updateSendingDomain(input.orgId, input.id, {
-        spfStatus: result.spf.status,
-        dkimStatus: result.dkim.status,
-        dmarcStatus: result.dmarc.status,
-        verificationStatus: result.allVerified ? 'verified' : 'failed',
-      });
+        await db.updateSendingDomain(input.orgId, input.id, {
+          spfStatus: result.spf.status,
+          dkimStatus: result.dkim.status,
+          dmarcStatus: result.dmarc.status,
+          verificationStatus: result.allVerified ? "verified" : "failed",
+        });
 
-      return result;
-    }),
+        return result;
+      }),
   }),
 
   // ─────────────────────────────────────────────
   // SMTP Configurations
   // ─────────────────────────────────────────────
   smtp: router({
-    list: protectedProcedure.input(orgIdSchema).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const configs = await db.getSmtpConfigs(input.orgId);
-      // Mask sensitive data
-      return configs.map(c => ({
-        ...c,
-        apiKey: c.apiKey ? '••••••••' : null,
-        smtpPassword: c.smtpPassword ? '••••••••' : null,
-      }));
-    }),
+    list: protectedProcedure
+      .input(orgIdSchema)
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const configs = await db.getSmtpConfigs(input.orgId);
+        // Mask sensitive data
+        return configs.map(c => ({
+          ...c,
+          apiKey: c.apiKey ? "••••••••" : null,
+          smtpPassword: c.smtpPassword ? "••••••••" : null,
+        }));
+      }),
 
-    byId: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const config = await db.getSmtpConfigById(input.orgId, input.id);
-      if (!config) throw new TRPCError({ code: 'NOT_FOUND' });
-      return {
-        ...config,
-        apiKey: config.apiKey ? '••••••••' : null,
-        smtpPassword: config.smtpPassword ? '••••••••' : null,
-      };
-    }),
+    byId: protectedProcedure
+      .input(z.object({ orgId: z.number(), id: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const config = await db.getSmtpConfigById(input.orgId, input.id);
+        if (!config) throw new TRPCError({ code: "NOT_FOUND" });
+        return {
+          ...config,
+          apiKey: config.apiKey ? "••••••••" : null,
+          smtpPassword: config.smtpPassword ? "••••••••" : null,
+        };
+      }),
 
-    create: protectedProcedure.input(createSmtpConfigSchema).mutation(async ({ ctx, input }) => {
-      await requireOrgAdmin(ctx.user.id, input.orgId);
-      return db.createSmtpConfig(input.orgId, input);
-    }),
+    create: protectedProcedure
+      .input(createSmtpConfigSchema)
+      .mutation(async ({ ctx, input }) => {
+        await requireOrgAdmin(ctx.user.id, input.orgId);
+        return db.createSmtpConfig(input.orgId, input);
+      }),
 
-    update: protectedProcedure.input(updateSmtpConfigSchema).mutation(async ({ ctx, input }) => {
-      await requireOrgAdmin(ctx.user.id, input.orgId);
-      const { orgId, id, ...data } = input;
-      // Don't overwrite secrets with mask values
-      if (data.apiKey === '••••••••') delete data.apiKey;
-      if (data.smtpPassword === '••••••••') delete data.smtpPassword;
-      return db.updateSmtpConfig(orgId, id, data);
-    }),
+    update: protectedProcedure
+      .input(updateSmtpConfigSchema)
+      .mutation(async ({ ctx, input }) => {
+        await requireOrgAdmin(ctx.user.id, input.orgId);
+        const { orgId, id, ...data } = input;
+        // Don't overwrite secrets with mask values
+        if (data.apiKey === "••••••••") delete data.apiKey;
+        if (data.smtpPassword === "••••••••") delete data.smtpPassword;
+        return db.updateSmtpConfig(orgId, id, data);
+      }),
 
-    delete: protectedProcedure.input(z.object({ orgId: z.number(), id: z.number() })).mutation(async ({ ctx, input }) => {
-      await requireOrgAdmin(ctx.user.id, input.orgId);
-      await db.deleteSmtpConfig(input.orgId, input.id);
-      return { success: true };
-    }),
+    delete: protectedProcedure
+      .input(z.object({ orgId: z.number(), id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        await requireOrgAdmin(ctx.user.id, input.orgId);
+        await db.deleteSmtpConfig(input.orgId, input.id);
+        return { success: true };
+      }),
   }),
 
   // ─────────────────────────────────────────────
   // Dashboard
   // ─────────────────────────────────────────────
   dashboard: router({
-    metrics: protectedProcedure.input(orgIdSchema).query(async ({ ctx, input }) => {
-      const org = await getUserOrg(ctx.user.id, input.orgId);
-      if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
-      const metrics = await db.getDashboardMetrics(input.orgId);
-      const recentCampaigns = await db.getRecentCampaigns(input.orgId, 5);
-      return { ...metrics, recentCampaigns };
-    }),
+    metrics: protectedProcedure
+      .input(orgIdSchema)
+      .query(async ({ ctx, input }) => {
+        const org = await getUserOrg(ctx.user.id, input.orgId);
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
+        const metrics = await db.getDashboardMetrics(input.orgId);
+        const recentCampaigns = await db.getRecentCampaigns(input.orgId, 5);
+        return { ...metrics, recentCampaigns };
+      }),
   }),
 
   // ─────────────────────────────────────────────
@@ -1237,29 +1643,35 @@ export const appRouter = router({
   // ─────────────────────────────────────────────
   ai: router({
     suggestSubjects: protectedProcedure
-      .input(z.object({
-        orgId: z.number(),
-        topic: z.string().min(1).max(2000),
-        audience: z.string().max(500).optional(),
-        tone: z.enum(['professional', 'friendly', 'urgent', 'curious']).optional(),
-      }))
+      .input(
+        z.object({
+          orgId: z.number(),
+          topic: z.string().min(1).max(2000),
+          audience: z.string().max(500).optional(),
+          tone: z
+            .enum(["professional", "friendly", "urgent", "curious"])
+            .optional(),
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         const org = await getUserOrg(ctx.user.id, input.orgId);
-        if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
 
         return suggestCopySubjects(input.topic, input.audience, input.tone);
       }),
 
     optimizeContent: protectedProcedure
-      .input(z.object({
-        orgId: z.number(),
-        content: z.string().min(1).max(50000),
-        goal: z.enum(['clarity', 'engagement', 'conversion', 'shorten']),
-        isHtml: z.boolean().optional(),
-      }))
+      .input(
+        z.object({
+          orgId: z.number(),
+          content: z.string().min(1).max(50000),
+          goal: z.enum(["clarity", "engagement", "conversion", "shorten"]),
+          isHtml: z.boolean().optional(),
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         const org = await getUserOrg(ctx.user.id, input.orgId);
-        if (!org) throw new TRPCError({ code: 'NOT_FOUND' });
+        if (!org) throw new TRPCError({ code: "NOT_FOUND" });
 
         return optimizeCopy(input.content, input.goal, input.isHtml);
       }),

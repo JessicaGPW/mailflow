@@ -79,11 +79,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               Acesse sua conta
             </h1>
             <p className="text-sm text-muted-foreground text-center max-w-sm">
-              Entre para acessar o painel do Colabix e gerenciar suas campanhas de e-mail marketing.
+              Entre para acessar o painel do MailFlow e gerenciar suas campanhas
+              de e-mail marketing.
             </p>
           </div>
           <Link href="/login">
-            <Button size="lg" className="w-full shadow-premium hover:shadow-premium-lg transition-all">
+            <Button
+              size="lg"
+              className="w-full shadow-premium hover:shadow-premium-lg transition-all"
+            >
               Entrar
             </Button>
           </Link>
@@ -109,7 +113,10 @@ type AppLayoutContentProps = {
   setSidebarWidth: (width: number) => void;
 };
 
-function AppLayoutContent({ children, setSidebarWidth }: AppLayoutContentProps) {
+function AppLayoutContent({
+  children,
+  setSidebarWidth,
+}: AppLayoutContentProps) {
   const { user, logout } = useAuth();
   const [location, setLocation] = useLocation();
   const [isResizing, setIsResizing] = useState(false);
@@ -172,7 +179,9 @@ function AppLayoutContent({ children, setSidebarWidth }: AppLayoutContentProps) 
           <Mail className="h-5 w-5 text-primary-foreground" />
         </div>
         <div className="flex-1 min-w-0">
-          <span className="font-semibold tracking-tight text-sidebar-foreground text-[15px]">Colabix</span>
+          <span className="font-semibold tracking-tight text-sidebar-foreground text-[15px]">
+            MailFlow
+          </span>
         </div>
         {isMobile && (
           <button
@@ -200,7 +209,11 @@ function AppLayoutContent({ children, setSidebarWidth }: AppLayoutContentProps) 
                     {currentOrg?.name || "Organização"}
                   </p>
                   <p className="text-[11px] text-muted-foreground truncate">
-                    {currentOrg?.plan === "free" ? "Plano Free" : currentOrg?.plan === "pro" ? "Plano Pro" : currentOrg?.plan || "Free"}
+                    {currentOrg?.plan === "free"
+                      ? "Plano Free"
+                      : currentOrg?.plan === "pro"
+                        ? "Plano Pro"
+                        : currentOrg?.plan || "Free"}
                   </p>
                 </div>
                 <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -232,9 +245,10 @@ function AppLayoutContent({ children, setSidebarWidth }: AppLayoutContentProps) 
       <nav className="flex-1 overflow-y-auto px-3 py-2">
         <div className="space-y-0.5">
           {menuItems.map(item => {
-            const isActive = item.path === "/"
-              ? location === "/"
-              : location.startsWith(item.path);
+            const isActive =
+              item.path === "/"
+                ? location === "/"
+                : location.startsWith(item.path);
             return (
               <button
                 key={item.path}
@@ -247,7 +261,14 @@ function AppLayoutContent({ children, setSidebarWidth }: AppLayoutContentProps) 
                     ? "bg-primary/8 text-primary font-medium"
                     : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
                 }`}
-                style={isActive ? { backgroundColor: "color-mix(in oklch, var(--primary) 8%, transparent)" } : {}}
+                style={
+                  isActive
+                    ? {
+                        backgroundColor:
+                          "color-mix(in oklch, var(--primary) 8%, transparent)",
+                      }
+                    : {}
+                }
               >
                 <item.icon
                   className={`h-[18px] w-[18px] shrink-0 ${isActive ? "text-primary" : ""}`}
@@ -306,7 +327,11 @@ function AppLayoutContent({ children, setSidebarWidth }: AppLayoutContentProps) 
     <>
       {/* Desktop sidebar */}
       {!isMobile && (
-        <div className="relative shrink-0" ref={sidebarRef} style={{ width: `var(--sidebar-w)` }}>
+        <div
+          className="relative shrink-0"
+          ref={sidebarRef}
+          style={{ width: `var(--sidebar-w)` }}
+        >
           {sidebar}
           <div
             className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-primary/20 transition-colors"
@@ -337,13 +362,13 @@ function AppLayoutContent({ children, setSidebarWidth }: AppLayoutContentProps) 
             >
               <PanelLeft className="h-4 w-4" />
             </button>
-            <span className="text-sm font-medium">{activeMenuItem?.label ?? "Colabix"}</span>
+            <span className="text-sm font-medium">
+              {activeMenuItem?.label ?? "MailFlow"}
+            </span>
             <div className="w-9" />
           </div>
         )}
-        <main className="flex-1 overflow-y-auto">
-          {children}
-        </main>
+        <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
     </>
   );

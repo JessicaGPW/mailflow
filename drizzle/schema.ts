@@ -16,11 +16,9 @@ import {
 // ─────────────────────────────────────────────
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
-  openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }).unique(),
   passwordHash: varchar("passwordHash", { length: 255 }),
-  loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -249,9 +247,6 @@ export const campaigns = mysqlTable("campaigns", {
   abWinnerVariant: mysqlEnum("abWinnerVariant", ["a", "b"]),
   abWinnerSentAt: datetime("abWinnerSentAt"),
   abWinnerProcessingAt: datetime("abWinnerProcessingAt"),
-  scheduleCronTaskUid: varchar("scheduleCronTaskUid", { length: 65 }),
-  // Scheduled send: Heartbeat cron that fires at scheduledAt to dispatch the campaign
-  sendScheduleCronTaskUid: varchar("sendScheduleCronTaskUid", { length: 65 }),
   createdBy: int("createdBy"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

@@ -89,7 +89,7 @@ export function registerTrackingRoutes(app: express.Express) {
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Cancelar inscrição — Colabix</title>
+        <title>Cancelar inscrição — MailFlow</title>
         <style>
           * { margin: 0; padding: 0; box-sizing: border-box; }
           body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8fafc; color: #1e293b; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
@@ -115,26 +115,30 @@ export function registerTrackingRoutes(app: express.Express) {
   });
 
   // Unsubscribe confirmation (POST)
-  app.post("/api/track/unsubscribe/:campaignId/:contactId", async (req, res) => {
-    const campaignId = parseInt(req.params.campaignId, 10);
-    const contactId = parseInt(req.params.contactId, 10);
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    if (!verifyTrackingToken("unsubscribe", campaignId, contactId, req.query.t)) {
-      return res.status(400).send(INVALID_LINK_PAGE);
-    }
-    try {
-      await db.recordUnsubscribeEvent(campaignId, null, contactId);
-    } catch (e) {
-      console.error("[Tracking] Failed to record unsubscribe", e);
-      return res.status(500).send(INVALID_LINK_PAGE);
-    }
-    res.send(`
+  app.post(
+    "/api/track/unsubscribe/:campaignId/:contactId",
+    async (req, res) => {
+      const campaignId = parseInt(req.params.campaignId, 10);
+      const contactId = parseInt(req.params.contactId, 10);
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      if (
+        !verifyTrackingToken("unsubscribe", campaignId, contactId, req.query.t)
+      ) {
+        return res.status(400).send(INVALID_LINK_PAGE);
+      }
+      try {
+        await db.recordUnsubscribeEvent(campaignId, null, contactId);
+      } catch (e) {
+        console.error("[Tracking] Failed to record unsubscribe", e);
+        return res.status(500).send(INVALID_LINK_PAGE);
+      }
+      res.send(`
       <!DOCTYPE html>
       <html lang="pt-BR">
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Inscrição cancelada — Colabix</title>
+        <title>Inscrição cancelada — MailFlow</title>
         <style>
           * { margin: 0; padding: 0; box-sizing: border-box; }
           body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8fafc; color: #1e293b; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
@@ -153,5 +157,6 @@ export function registerTrackingRoutes(app: express.Express) {
       </body>
       </html>
     `);
-  });
+    }
+  );
 }

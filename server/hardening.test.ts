@@ -7,17 +7,15 @@ import { smtpConfigurations } from "../drizzle/schema";
 import { isEncrypted } from "./security";
 
 // Integration tests for the security/sending fixes. Need a real MySQL:
-// DATABASE_URL=mysql://... pnpm test
+// Set DATABASE_URL to a MySQL connection string before running npm test.
 const HAS_DB = Boolean(process.env.DATABASE_URL);
 
-function createCtx(userId: number, openId: string): TrpcContext {
+function createCtx(userId: number, email: string): TrpcContext {
   return {
     user: {
       id: userId,
-      openId,
-      email: `${openId}@example.com`,
-      name: openId,
-      loginMethod: "test",
+      email,
+      name: email,
       role: "user",
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -29,10 +27,10 @@ function createCtx(userId: number, openId: string): TrpcContext {
 }
 
 async function makeUser(prefix: string) {
-  const openId = `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-  await db.upsertUser({ openId, name: prefix });
-  const user = await db.getUserByOpenId(openId);
-  return { user: user!, caller: appRouter.createCaller(createCtx(user!.id, openId)) };
+  const email = `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}@example.com`;
+  await db.upsertUser({ email, name: prefix });
+  const user = await db.getUserByEmail(email);
+  return { user: user!, caller: appRouter.createCaller(createCtx(user!.id, email)) };
 }
 
 let admin: Awaited<ReturnType<typeof makeUser>>;

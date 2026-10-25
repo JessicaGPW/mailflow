@@ -2,7 +2,6 @@ import { eq, and, sql, desc, asc, inArray, like, or, gte, lte, ne, isNull, count
 import { decryptSecret, encryptSecret } from "./security";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
-  InsertUser,
   users,
   organizations,
   organizationMembers,
@@ -25,7 +24,6 @@ import {
   sendingDomains,
   smtpConfigurations,
 } from "../drizzle/schema";
-import { randomUUID } from "node:crypto";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -70,42 +68,15 @@ export async function closeDb() {
 }
 
 // ─────────────────────────────────────────────
-// User queries (from template)
+// User queries
 // ─────────────────────────────────────────────
-export async function upsertUser(user: InsertUser): Promise<void> {
-  if (!user.openId) throw new Error("User openId is required for upsert");
+export async function upsertUser(user: { email: string; name: string }) {
   const db = await getDb();
-  if (!db) return;
-
-  try {
-    const values: InsertUser = { openId: user.openId };
-    const updateSet: Record<string, unknown> = {};
-    const textFields = ["name", "email", "loginMethod"] as const;
-    textFields.forEach((field) => {
-      const value = user[field];
-      if (value !== undefined) {
-        const normalized = value ?? null;
-        values[field] = normalized;
-        updateSet[field] = normalized;
-      }
-    });
-    if (user.lastSignedIn !== undefined) { values.lastSignedIn = user.lastSignedIn; updateSet.lastSignedIn = user.lastSignedIn; }
-    if (user.role !== undefined) { values.role = user.role; updateSet.role = user.role; }
-    if (!values.lastSignedIn) values.lastSignedIn = new Date();
-    if (Object.keys(updateSet).length === 0) updateSet.lastSignedIn = new Date();
-
-    await db.insert(users).values(values).onDuplicateKeyUpdate({ set: updateSet });
-  } catch (error) {
-    console.error("[Database] Failed to upsert user:", error);
-    throw error;
-  }
-}
-
-export async function getUserByOpenId(openId: string) {
-  const db = await getDb();
-  if (!db) return undefined;
-  const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
-  return result.length > 0 ? result[0] : undefined;
+  if (!db) throw new Error("Database not available");
+  await db
+    .insert(users)
+    .values({ email: user.email, name: user.name })
+    .onDuplicateKeyUpdate({ set: { name: user.name, lastSignedIn: new Date() } });
 }
 
 export async function getUserById(id: number) {
@@ -132,11 +103,9 @@ export async function createLocalUserAccount(input: {
 
   return db.transaction(async (tx) => {
     const userResult = await tx.insert(users).values({
-      openId: `local_${randomUUID()}`,
       name: input.name,
       email: input.email,
       passwordHash: input.passwordHash,
-      loginMethod: "email",
     });
     const userId = getInsertId(userResult);
     const orgName = `${input.name}'s Organization`;
@@ -765,13 +734,6 @@ export async function getSentContactIds(campaignId: number): Promise<Set<number>
   if (!db) return new Set();
   const rows = await db.select({ contactId: campaignSends.contactId }).from(campaignSends).where(eq(campaignSends.campaignId, campaignId));
   return new Set(rows.map(r => r.contactId));
-}
-
-export async function getCampaignByCronTaskUid(taskUid: string) {
-  const db = await getDb();
-  if (!db) return undefined;
-  const result = await db.select().from(campaigns).where(eq(campaigns.scheduleCronTaskUid, taskUid)).limit(1);
-  return result.length > 0 ? result[0] : undefined;
 }
 
 export async function getAbTestResults(campaignId: number) {
@@ -1458,12 +1420,4 @@ export async function getContactProfile(orgId: number, contactId: number) {
     customFields: fieldRows.map(r => ({ name: r.field.name, key: r.field.key, value: r.value })),
     summary: { totalReceived, opens, clicks },
   };
-}
-
-/** Look up a campaign by the Heartbeat task uid of its scheduled send. */
-export async function getCampaignBySendCronTaskUid(taskUid: string) {
-  const db = await getDb();
-  if (!db) return undefined;
-  const result = await db.select().from(campaigns).where(eq(campaigns.sendScheduleCronTaskUid, taskUid)).limit(1);
-  return result.length > 0 ? result[0] : undefined;
 }

@@ -66,7 +66,7 @@
 ## Novas Funcionalidades (Rodada 3)
 - [x] Envio automático da variante vencedora A/B: schema (abTestPercent, abWaitHours, abWinnerSentAt)
 - [x] Envio automático da variante vencedora A/B: pipeline (enviar teste para % da base, resto aguarda)
-- [x] Envio automático da variante vencedora A/B: job agendado (Heartbeat) que apura vencedora e dispara restante
+- [x] Envio automático da variante vencedora A/B: agendador local apura vencedora e dispara restante
 - [x] Envio automático da variante vencedora A/B: UI no editor (percentual de teste + período de espera)
 - [x] Galeria de templates pré-montados no construtor visual (newsletter, promoção, boas-vindas, anúncio)
 - [x] Verificação real de DNS: backend com dns.promises.resolveTxt (SPF, DKIM, DMARC)
@@ -105,10 +105,10 @@
 - [x] Perfil do contato: link na tabela de contatos e rota registrada
 - [x] Importação CSV: upload real de arquivo com parser RFC-4180 no cliente
 - [x] Importação CSV: etapa visual de mapeamento de colunas com pré-visualização
-- [x] Agendamento: coluna sendScheduleCronTaskUid + migration
-- [x] Agendamento: handler /api/scheduled/sendCampaign idempotente
-- [x] Agendamento: procedures schedule (cria/atualiza cron) e unschedule
+- [x] Agendamento local de campanhas com migration
+- [x] Agendamento: envio idempotente pelo agendador local
+- [x] Agendamento: procedures schedule/unschedule persistem scheduledAt
 - [x] Agendamento: UI com data/hora, banner de agendado e cancelamento
-- [x] Rebranding: substituir MailFlow por Colabix na interface
+- [x] Rebranding: MailFlow
 - [x] Testes vitest para novas funcionalidades — 57 testes passando
 - [x] Checkpoint final da rodada 6

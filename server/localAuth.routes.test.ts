@@ -135,11 +135,9 @@ describe("local auth procedures", () => {
     const token = await createSessionToken(21);
     getUserById.mockResolvedValue({
       id: 21,
-      openId: "local_test",
       name: "Test User",
       email: "test@example.com",
       passwordHash: "scrypt$stored-hash",
-      loginMethod: "email",
       role: "user",
       createdAt: new Date(),
       updatedAt: new Date(),
